@@ -1,4 +1,6 @@
 import importlib
+import os
+import pickle
 
 import numpy as np
 import psfmodels as psfm
@@ -11,6 +13,7 @@ import skimage
 import copy
 
 from ipywidgets import interactive, fixed
+from IPython.display import display
 from matplotlib import pyplot as plt
 from skimage.transform import rescale, rotate
 from skimage.util import random_noise
@@ -24,8 +27,8 @@ from PIL import Image
 from SyMBac.PSF import PSF_generator
 from SyMBac.pySHINE import cart2pol, sfMatch, lumMatch
 
-
-if importlib.util.find_spec("cupy") is None:
+USE_CUPY = False
+if not USE_CUPY:  # importlib.util.find_spec("cupy") is None:
     from scipy.signal import convolve2d as cuconvolve
 
     njobs = -1
@@ -136,8 +139,8 @@ class Renderer:
         media_multiplier = 30
         cell_multiplier = 1
         device_multiplier = -50
-        self.y_border_expansion_coefficient = 2
-        self.x_border_expansion_coefficient = 2
+        self.y_border_expansion_coefficient = 3  # 2
+        self.x_border_expansion_coefficient = 3  # 2
 
         temp_expanded_scene, temp_expanded_scene_no_cells, temp_expanded_mask = self.generate_PC_OPL(
             scene=simulation.OPL_scenes[-1],
@@ -170,14 +173,39 @@ class Renderer:
         device_var_error = []
 
         self.error_params = (
-        mean_error, media_error, cell_error, device_error, mean_var_error, media_var_error, cell_var_error,
-        device_var_error)
+            mean_error, media_error, cell_error, device_error, mean_var_error, media_var_error, cell_var_error,
+            device_var_error)
 
-    def select_intensity_napari(self):
-        viewer = napari.view_image(self.real_resize)
-        self.media_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Media")
-        self.cell_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Cell")
-        self.device_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Device")
+    def select_intensity_napari(self, fname_param=""):
+        if (not fname_param) or (not os.path.isfile(fname_param)):
+            viewer = napari.view_image(self.real_resize)
+            media_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Media")
+            cell_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Cell")
+            device_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Device")
+            viewer.show(block=True)
+
+            self.real_media_mean = self.real_resize[np.where(media_label.data)].mean()
+            self.real_cell_mean = self.real_resize[np.where(cell_label.data)].mean()
+            self.real_device_mean = self.real_resize[np.where(device_label.data)].mean()
+            self.real_media_var = self.real_resize[np.where(media_label.data)].var()
+            self.real_cell_var = self.real_resize[np.where(cell_label.data)].var()
+            self.real_device_var = self.real_resize[np.where(device_label.data)].var()
+            assert (self.real_media_mean > 0) and (self.real_cell_mean > 0) and (self.real_device_mean > 0), \
+                "Expected positive means, received media_mean={}, media_mean={}, media_mean={}".format(
+                    self.real_media_mean, self.real_cell_mean, self.real_device_mean)
+            if fname_param:
+                save_param = (self.real_media_mean, self.real_cell_mean, self.real_device_mean,
+                              self.real_media_var, self.real_cell_var, self.real_device_var)
+                with open(fname_param, "wb") as f:
+                    pickle.dump(save_param, f, pickle.HIGHEST_PROTOCOL)
+        else:
+            print("Loading mask from {}".format(fname_param))  # TODO: use logger
+            saved_param = pickle.load(open(fname_param, "rb"))
+            self.real_media_mean, self.real_cell_mean, self.real_device_mean = saved_param[:3]
+            self.real_media_var, self.real_cell_var, self.real_device_var = saved_param[3:]
+
+        self.real_means = np.array((self.real_media_mean, self.real_cell_mean, self.real_device_mean))
+        self.real_vars = np.array((self.real_media_var, self.real_cell_var, self.real_device_var))
 
     def generate_test_comparison(self, media_multiplier=75, cell_multiplier=1.7, device_multiplier=29, sigma=8.85,
                                  scene_no=-1, match_fourier=False, match_histogram=True, match_noise=False,
@@ -247,7 +275,10 @@ class Renderer:
             defocus=defocus
         )
 
-        R, W, radius, scale, NA, n, _, λ = self.PSF.R, self.PSF.W, self.PSF.radius, self.PSF.scale, self.PSF.NA, self.PSF.n, self.PSF.apo_sigma, self.PSF.wavelength
+        if self.PSF.mode == "phase contrast":
+            R, W, radius, scale, NA, n, _, λ = self.PSF.R, self.PSF.W, self.PSF.radius, self.PSF.scale, self.PSF.NA, self.PSF.n, self.PSF.apo_sigma, self.PSF.wavelength
+        else:
+            radius, scale, NA, n, _, λ = self.PSF.radius, self.PSF.scale, self.PSF.NA, self.PSF.n, self.PSF.apo_sigma, self.PSF.wavelength
 
         real_media_mean, real_cell_mean, real_device_mean, real_means, real_media_var, real_cell_var, real_device_var, real_vars = self.image_params
         mean_error, media_error, cell_error, device_error, mean_var_error, media_var_error, cell_var_error, device_var_error = self.error_params
@@ -315,7 +346,7 @@ class Renderer:
             rng = np.random.default_rng(2)
             matched = matched / (matched.max() / self.real_image.max()) / sensitivity
             if match_fourier:
-                matched += abs(matched.min()) # Preserve mean > 0 for rng.poisson(matched)
+                matched += abs(matched.min())  # Preserve mean > 0 for rng.poisson(matched)
             matched = rng.poisson(matched)
             noisy_img = matched + rng.normal(loc=baseline, scale=dark_noise, size=matched.shape)
         else:  # Ad hoc noise mathcing
@@ -457,13 +488,15 @@ class Renderer:
         def get_OPL_image(scene, mask, media_multiplier, cell_multiplier, device_multiplier,
                           y_border_expansion_coefficient, x_border_expansion_coefficient, defocus):
             segment_1_top_left = (
-            0 + self.simulation.offset, int(self.simulation.main_segments.iloc[0]["bb"][0] + self.simulation.offset))
+                0 + self.simulation.offset,
+                int(self.simulation.main_segments.iloc[0]["bb"][0] + self.simulation.offset))
             segment_1_bottom_right = (
                 int(self.simulation.main_segments.iloc[0]["bb"][3] + self.simulation.offset),
                 int(self.simulation.main_segments.iloc[0]["bb"][2] + self.simulation.offset))
 
             segment_2_top_left = (
-            0 + self.simulation.offset, int(self.simulation.main_segments.iloc[1]["bb"][0] + self.simulation.offset))
+                0 + self.simulation.offset,
+                int(self.simulation.main_segments.iloc[1]["bb"][0] + self.simulation.offset))
             segment_2_bottom_right = (
                 int(self.simulation.main_segments.iloc[1]["bb"][3] + self.simulation.offset),
                 int(self.simulation.main_segments.iloc[1]["bb"][2] + self.simulation.offset))
@@ -479,7 +512,7 @@ class Renderer:
                 test_scene[rr, cc] = 1 * media_multiplier
                 circ_midpoint_y = (segment_1_top_left[1] + segment_2_bottom_right[1]) / 2
                 radius = (segment_1_top_left[1] - self.simulation.offset - (
-                            segment_2_bottom_right[1] - self.simulation.offset)) / 2
+                        segment_2_bottom_right[1] - self.simulation.offset)) / 2
                 circ_midpoint_x = (self.simulation.offset) + radius
 
                 rr, cc = draw.rectangle(start=segment_2_top_left, end=(circ_midpoint_x, segment_1_top_left[1]),
@@ -558,6 +591,7 @@ class Renderer:
         :return: ipywidget object for optimisation of synthetic data
         """
 
+        """
         self.real_media_mean = self.real_resize[np.where(self.media_label.data)].mean()
         self.real_cell_mean = self.real_resize[np.where(self.cell_label.data)].mean()
         self.real_device_mean = self.real_resize[np.where(self.device_label.data)].mean()
@@ -567,10 +601,11 @@ class Renderer:
         self.real_cell_var = self.real_resize[np.where(self.cell_label.data)].var()
         self.real_device_var = self.real_resize[np.where(self.device_label.data)].var()
         self.real_vars = np.array((self.real_media_var, self.real_cell_var, self.real_device_var))
+        """
 
         self.image_params = (
-        self.real_media_mean, self.real_cell_mean, self.real_device_mean, self.real_means, self.real_media_var,
-        self.real_cell_var, self.real_device_var, self.real_vars)
+            self.real_media_mean, self.real_cell_mean, self.real_device_mean, self.real_means, self.real_media_var,
+            self.real_cell_var, self.real_device_var, self.real_vars)
 
         self.params = interactive(
             self.generate_test_comparison,
@@ -587,7 +622,7 @@ class Renderer:
             debug_plot=fixed(True),
             defocus=(0, 20, 0.1),
         )
-
+        display()
         return self.params
 
     def generate_training_data(self, sample_amount, randomise_hist_match, randomise_noise_match,

@@ -408,11 +408,10 @@ def scene_plotter(scene_array, output_dir, name, a, matplotlib_draw):
 
 def make_images_same_shape(real_image, synthetic_image, rescale_int=True):
     """ Makes a synthetic image the same shape as the real image """
-
     assert real_image.shape[0] < synthetic_image.shape[
-        0], "Real image has a higher diemsion on axis 0, increase y_border_expansion_coefficient"
+        0], "Real image has a higher dimension on axis 0, increase y_border_expansion_coefficient"
     assert real_image.shape[1] < synthetic_image.shape[
-        1], "Real image has a higher diemsion on axis 1, increase x_border_expansion_coefficient"
+        1], "Real image has a higher dimension on axis 1, increase x_border_expansion_coefficient"
 
     x_diff = synthetic_image.shape[1] - real_image.shape[1]
     remove_from_left, remove_from_right = div_odd(x_diff)

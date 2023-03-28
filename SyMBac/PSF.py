@@ -143,6 +143,7 @@ class PSF_generator:
             scalebar = ScaleBar(self.scale, "um", length_fraction=0.25)
             ax.add_artist(scalebar)
             plt.show()
+        input("Press Enter to continue...")
 
     @staticmethod
     def get_fluorescence_kernel(wavelength, NA, n, radius, scale, offset = 0):

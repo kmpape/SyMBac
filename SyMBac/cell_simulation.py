@@ -132,6 +132,9 @@ def run_simulation(trench_length, trench_width, cell_max_length, cell_width, sim
                 dt=dt, cells=cells, space=space, phys_iters=phys_iters, ylim=trench_length,
                 cell_timeseries=cell_timeseries, x=x, sim_length=sim_length, save_dir=save_dir
             )
+    if show_window:
+        input("Press Enter to continue...")
+        pyglet.app.exit()
 
     # window.close()
     # phys_iters = phys_iters
@@ -274,7 +277,6 @@ def step_and_update(dt, cells, space, phys_iters, ylim, cell_timeseries,x,sim_le
             pickle.dump(cell_timeseries, f)
         with open(save_dir+"/space_timeseries.p", "wb") as f:
             pickle.dump(space, f)
-        pyglet.app.exit()
         return cells
     x[0] += 1
     return (cells)

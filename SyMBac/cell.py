@@ -138,7 +138,7 @@ class Cell:
             self.space.add(cell_body, cell_shape)
             daughter_details = {
                 "length": daughter_length,
-                "width": np.random.normal(self.width_mean,self.width_var),
+                "width": np.random.normal(self.width_mean, self.width_var),
                 "resolution": self.resolution,
                 "position": [self.position[0] - (self.length+ self.width/2)/2 * np.cos(self.angle*2), self.position[1] - (self.length+ self.width/2)/2 * np.sin(self.angle*2)],
                 "angle": self.angle*np.random.uniform(0.95,1.05),
@@ -166,7 +166,7 @@ class Cell:
             self.body = cell_body
             cell_body.position = self.position
             cell_body.angle = self.angle
-            cell_shape.friction=0
+            cell_shape.friction = 0
             self.space.add(cell_body, cell_shape)
             return cell_body, cell_shape
 
