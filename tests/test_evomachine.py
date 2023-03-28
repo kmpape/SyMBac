@@ -1,6 +1,10 @@
 import sys
 # sys.path.insert(1, '/home/idris/workspace_python/symbac/SyMBac/') # Not needed if you installed SyMBac using pip
 
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
 from SyMBac.simulation import Simulation
 from SyMBac.PSF import PSF_generator
 from SyMBac.renderer import Renderer
@@ -10,9 +14,10 @@ from SyMBac.misc import get_sample_images
 
 # OPTIONS
 show_window = False
-save_dir = "/home/idris/workspace_python/symbac/testdata/"
+# save_dir = "/home/idris/workspace_python/symbac/testdata/"
+save_dir = "/home/hslab/workspace_python/symbac_pip/testdata/"
 save_mask = save_dir + "tmp_mask.p"
-param_set = 0  # 0= SyMBac, 1= EvoMachine
+param_set = 1  # 0= SyMBac, 1= EvoMachine
 
 # TRENCH
 if param_set == 0:
@@ -21,8 +26,6 @@ if param_set == 0:
 else:
     trench_length = 50  # um
     trench_width = 3  # um
-
-real_image = get_sample_images()["E. coli 100x"]  # size must somehow match the output of the simulation
 
 # CELLS
 cell_max_length = 6.65  # um
@@ -47,6 +50,16 @@ if param_set == 0:
     pix_mic_conv = 0.065
 else:
     pix_mic_conv = 0.1625  # Micron per pixel conversion factor             -> 6.5/40, MH4
+
+# EXAMPLE IMAGE
+tmp = get_sample_images()["E. coli 100x"]  # size must somehow match the output of the simulation
+if param_set == 1:
+    num_rows, num_cols = tmp.shape
+    div_factor = pix_mic_conv / 0.065
+    real_image = cv2.resize(tmp, dsize=(int(tmp.shape[1]/div_factor), int(tmp.shape[0]/div_factor)),
+                            interpolation=cv2.INTER_CUBIC)
+else:
+    real_image = tmp
 
 # CAMERA
 baseline = 100

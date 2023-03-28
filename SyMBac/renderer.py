@@ -27,7 +27,7 @@ from PIL import Image
 from SyMBac.PSF import PSF_generator
 from SyMBac.pySHINE import cart2pol, sfMatch, lumMatch
 
-USE_CUPY = False
+USE_CUPY = True
 if not USE_CUPY:  # importlib.util.find_spec("cupy") is None:
     from scipy.signal import convolve2d as cuconvolve
 
