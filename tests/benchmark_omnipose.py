@@ -63,7 +63,7 @@ batch_size = batch_size_vec[0]
 #    for batch_size in batch_size_vec:  # number of 224 x 224 batches they send to the GPU
 for irow in irow_vec:
     elapsed = np.zeros(nruns)
-    x = [large_img[irow * img_shape[0]:(irow + 1) * img_shape[0], :]]
+    x = [large_img[0:(irow + 1) * img_shape[0], :]]
     for irun in range(0, nruns):
         start = perf_counter()
         masks, flows, styles = model.eval(
