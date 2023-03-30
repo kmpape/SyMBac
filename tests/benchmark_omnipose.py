@@ -1,25 +1,16 @@
-from copy import deepcopy
 from glob import glob
 from natsort import natsorted
 import numpy as np
 import os
 import psutil
-from skimage.transform import rescale, resize, downscale_local_mean
-from skimage.util import img_as_ubyte
-import sys
 import tifffile
 from time import perf_counter
 
-from cellpose import models, core, plot, io, transforms
-import omnipose
+from cellpose import models
 from omnipose.utils import normalize99
 
-os_used = sys.platform
 process = psutil.Process(os.getpid())  # Set highest priority for the python script for the CPU
-if os_used == "win32":  # Windows (either 32-bit or 64-bit)
-    process.nice(psutil.REALTIME_PRIORITY_CLASS)
-elif os_used == "linux":  # linux
-    process.nice(psutil.IOPRIO_HIGH)
+process.nice(psutil.IOPRIO_CLASS_RT)
 
 save_dir = "/home/hslab/workspace_python/symbac_pip/testdata/"
 model_dir = save_dir + "train/models/"
@@ -80,5 +71,5 @@ for irow in irow_vec:
             transparency=True, flow_threshold=0., omni=omni, resample=True, verbose=0)
         elapsed[irun] = perf_counter() - start
     avg_elapsed = (elapsed.sum()-elapsed.min()-elapsed.max())/(nruns-2.)
-    print("Omni={:1}\tBatch Size={:2}\tnrows={:2}\tElapsed_s={:.4f}\tElapsedPerTrench_ms={:.4f}\t".format(
-        omni, batch_size, irow+1, avg_elapsed, avg_elapsed/(irow+1)/num_tiles[1]*1000))
+    print("Omni={:1}\tBatch Size={:2}\tnrows={:2}\tElapsed_s={:.4f}\tMin_s={:.4f}\tMax_s={:.4f}\tElapsedPerTrench_ms={:.4f}\t".format(
+        omni, batch_size, irow+1, avg_elapsed, elapsed.min(), elapsed.max(), avg_elapsed/(irow+1)/num_tiles[1]*1000))
