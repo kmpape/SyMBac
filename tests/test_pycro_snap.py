@@ -42,13 +42,12 @@ for f in range(num_frames_to_capture):
     plt.imshow(np.reshape(tagged_image.pix,
                           newshape=[tagged_image.tags['Height'],
                                     tagged_image.tags['Width']]),
-               cmap='gray', vmin=0, vmax=4096)
+               cmap='gray', vmin=0, vmax=65535)
     plt.axis('off')
     plt.show(block=False)
 
     # helpful printout to monitor progress
-    if f % 50 == 0:
-        print('current frame: {}'.format(f))
+    print('current frame: {}'.format(f))
 
     nowtime = time.time()
     next_call = next_call + interframe_interval / 1000
