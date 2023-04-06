@@ -11,6 +11,7 @@ core = Core()
 exposure = 20
 num_frames_to_capture = 100
 core.set_exposure(exposure)
+scale_image = 1./65535.
 
 interframe_interval = 10000 # ms
 assert interframe_interval > exposure
@@ -26,7 +27,7 @@ tagged_image = core.get_tagged_image()
 tmp = np.reshape(tagged_image.pix, newshape=[tagged_image.tags['Height'], tagged_image.tags['Width']])
 fig = plt.figure(figsize=[tagged_image.tags['Height'], tagged_image.tags['Width']]) # initialize figure
 plt.subplot(1, 1, 1)
-plt.imshow(tmp, cmap='gray', vmin=0, vmax=65535)
+plt.imshow(tmp*scale_image)
 plt.axis('off')
 plt.show(block=False)
 
@@ -39,10 +40,7 @@ for f in range(num_frames_to_capture):
     tagged_image = core.get_tagged_image()
 
     plt.close()
-    plt.imshow(np.reshape(tagged_image.pix,
-                          newshape=[tagged_image.tags['Height'],
-                                    tagged_image.tags['Width']]),
-               cmap='gray', vmin=0, vmax=65535)
+    plt.imshow(tmp*scale_image)
     plt.axis('off')
     plt.show(block=False)
 
