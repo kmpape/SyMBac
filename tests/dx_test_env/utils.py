@@ -1,3 +1,27 @@
+import pickle
+
+def GetSourcePts(mask, filePath=None):
+    """
+    Get the source points from the mask and save them to a file
+    :param mask: mask to get the source points from
+    :param filePath: path to save the source points to
+    :return: the source points
+    """
+    sourcePts = []
+
+    (maskWidth, maskHeight) = mask.shape
+
+    for i in range(maskWidth):
+        for j in range(maskHeight):
+            if mask[i,j] != 0:
+                sourcePts.append([i,j])
+    if filePath is not None:
+        with open(filePath + '/sourcePts.pkl', 'wb') as file: 
+            pickle.dump(sourcePts, file)
+
+    return sourcePts
+
+
 def AverageFilter(img, x, y, sz = 3):
     """
     Applies a bluring filter of size sz centred on (x,y) to the image img
