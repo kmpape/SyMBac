@@ -93,7 +93,7 @@ def PlotPSF(model,psf=None):
     plt.plot(psf_x,psf_y)
     plt.show()
     
-def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=None,displayGraph=False):
+def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=None,displayGraph=False,minLoss=0):
     """
     This is our main training loop for our PSF Net
     :param model: model to be trained
@@ -103,12 +103,16 @@ def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=Non
     :param epoch: number of epochs to train for
     :param savePath: path to save the model to
     :param displayGraph: whether to display the graph of the psf
+    :param minLoss: minimum loss to stop training
     :return: None
     """
     
-    running_loss = 0.0
-    for e in range(epochs):  # loop over the dataset multiple times
-        running_loss = 0.0
+    average_running_loss = 0.0
+
+    current_epoch = 0
+    while current_epoch < epochs:  # loop over the dataset multiple times
+        current_epoch += 1
+        average_running_loss = 0.0
         for i, data in enumerate(dataloader):
             inputs, outputs = data
             optimizer.zero_grad()
@@ -116,9 +120,14 @@ def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=Non
             loss = lossCriterion(nn_outputs.float(), outputs.float())
             loss.backward()
             optimizer.step()
-            running_loss += loss.item()
-        if (e%20==0):
-            print("Epoch: ",e+1, " Loss: ",running_loss)
+            average_running_loss += loss.item()
+        average_running_loss /= len(dataloader)
+
+        if average_running_loss < minLoss:
+            break
+
+        if (current_epoch%20==0):
+            print("Epoch: ",current_epoch, " Loss: ",average_running_loss)
             if (displayGraph):
                 #Normalise x axis of original psf to 1
                 psf_x = [np.linspace(0,1,100,dtype=np.float32)]
@@ -128,13 +137,13 @@ def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=Non
                 plt.plot(psf_x,psf_y)
                 plt.show()
                     
-    print("Epoch: ",epochs, " Loss: ",running_loss)
+    print("Epoch: ",current_epoch, " Loss: ",average_running_loss)
     if savePath is not None:
         torch.save({
             'epoch': epochs,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'loss': running_loss,
+            'loss': average_running_loss,
             }, savePath)
         
 def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts = 0, adjPts = 0, psf=None, model=None):
@@ -149,6 +158,9 @@ def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts
     :param GetPSF: selected method to get PSF
     :param learningRate: learning rate of the matrix inversion
     :param randomPts: number of random points to be included in the matrix inversion
+    :param adjPts: number of adjacent points to be included in the matrix inversion
+    :param psf: psf to be used for the matrix inversion
+    :param model: model to be used for the matrix inversion
     :return: new image based on the originalOuput*(1-learningRate) + learningRate*newOutput
     """
 
@@ -186,15 +198,14 @@ def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts
     originalOutputSize = EuclideanDistance([0,0],[len(originalOutput),len(originalOutput[0])])
     print(maskedPts)
 
+    A = np.zeros((len(additionalPts), len(maskedPts)))
     if psf is not None:
         #Generate the matrix A
-        A = np.zeros((len(additionalPts), len(maskedPts)))
         for i, x in enumerate(additionalPts):
             for j, y in enumerate(sourcePts):
                 A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFMatrix(y,x,psf)
     if model is not None:
         #Generate the matrix A
-        A = np.zeros((len(additionalPts), len(maskedPts)))
         for i, x in enumerate(additionalPts):
             for j, y in enumerate(sourcePts):
                 A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFModel(y,x,model,originalOutputSize)
