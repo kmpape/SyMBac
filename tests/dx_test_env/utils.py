@@ -117,16 +117,16 @@ def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=Non
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            if (e%20==0):
-                print("Epoch: ",e+1, " Loss: ",running_loss)
-                if (displayGraph):
-                    #Normalise x axis of original psf to 1
-                    psf_x = [np.linspace(0,1,100,dtype=np.float32)]
-                    psf_y = model.getPSF(torch.tensor(psf_x))
-                    psf_x = psf_x[0]
-                    psf_y = psf_y.detach().numpy().flatten()
-                    plt.plot(psf_x,psf_y)
-                    plt.show()
+        if (e%20==0):
+            print("Epoch: ",e+1, " Loss: ",running_loss)
+            if (displayGraph):
+                #Normalise x axis of original psf to 1
+                psf_x = [np.linspace(0,1,100,dtype=np.float32)]
+                psf_y = model.getPSF(torch.tensor(psf_x))
+                psf_x = psf_x[0]
+                psf_y = psf_y.detach().numpy().flatten()
+                plt.plot(psf_x,psf_y)
+                plt.show()
                     
     print("Epoch: ",epochs, " Loss: ",running_loss)
     if savePath is not None:
@@ -184,13 +184,13 @@ def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, r
     print(maskedPts)
 
     #Generate the matrix A
-    A = np.zeros((len(sourcePts) + len(additionalPts), len(maskedPts)))
+    A = np.zeros((len(additionalPts), len(maskedPts)))
     for i, x in enumerate(additionalPts):
         for j, y in enumerate(sourcePts):
             A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFModel(y,x,PSFNet,originalOutputSize)
 
     #Generate the vector b
-    b = np.zeros((len(sourcePts) + len(additionalPts), 1))
+    b = np.zeros((len(additionalPts), 1))
     for i, (x, y) in enumerate(additionalPts):
         b[i] = AverageFilter(originalOutput, x, y)
     b = b / max(originalOutput.flatten())

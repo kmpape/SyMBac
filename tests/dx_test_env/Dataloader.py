@@ -18,28 +18,30 @@ class Dataloader(torch.utils.data.Dataset):
         maskSize = EuclideanDistance(mask.shape,(0,0)) 
         maxOutput = max(output.flatten())
 
+        """
         for idx in range(N):
             current = sourcePts[idx]
             distance = [EuclideanDistance(sourcePts[k],current)/maskSize for k in range(N)] #Normalise by diagonal length of mask
             intensty = [AverageFilter(output,current[0],current[1])/maxOutput] #Normalise by max intensity
             distanceMatrix.append(torch.tensor(distance))
             intensityMatrix.append(torch.tensor(intensty))
-
+        """
         #Add a bunch of random points
-        for i in range(outputWidth*outputHeight):
-            x = random.randint(0,maskWidth-1)
-            y = random.randint(0,maskHeight-1)
+        for i in range(randomPts):
+            x = random.randint(0,outputWidth-1)
+            y = random.randint(0,outputHeight-1)
             distance = [EuclideanDistance(sourcePts[k],(x,y))/maskSize for k in range(N)] #Normalise by diagonal length of mask
-            intensty = [AverageFilter(out,x,y)/maxOutput] #Normalise by max intensity
+            intensty = [AverageFilter(output,x,y)/maxOutput] #Normalise by max intensity
             distanceMatrix.append(torch.tensor(distance))
             intensityMatrix.append(torch.tensor(intensty))
         
-        for (x,y) in range(N):
+        #Add adjacent points including the source points
+        for (x,y) in sourcePts:
             for i in range(-adjPts,adjPts+1):
                 for j in range(-adjPts,adjPts+1):
-                    if x+i >= 0 and x+i < len(originalOutput) and y+j >= 0 and y+j < len(originalOutput[0]):
+                    if x+i >= 0 and x+i < len(output) and y+j >= 0 and y+j < len(output[0]):
                         distance = [EuclideanDistance(sourcePts[k],(x+i,y+j))/maskSize for k in range(N)]
-                        intensty = [AverageFilter(out,x+i,y+j)/maxOutput]
+                        intensty = [AverageFilter(output,x+i,y+j)/maxOutput]
                         distanceMatrix.append(torch.tensor(distance))
                         intensityMatrix.append(torch.tensor(intensty))
 
