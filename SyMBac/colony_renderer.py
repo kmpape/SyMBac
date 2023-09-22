@@ -137,8 +137,8 @@ class SimplifiedRenderer:
 
         convolved = convolve_rescale(scene, temp_kernel, 1/self.resize_amount, rescale_int=True)
 
-        #convolved = random_noise((convolved), mode="poisson")
-        #convolved = random_noise((convolved), mode="gaussian", mean=1, var=0.0002, clip=False)
+        convolved = random_noise((convolved), mode="poisson")
+        convolved = random_noise((convolved), mode="gaussian", mean=1, var=0.0002, clip=False)
 
         convolved = rescale_intensity(convolved.astype(np.float32), out_range=(0, np.iinfo(np.uint16).max)).astype(np.uint16)
 

@@ -137,7 +137,7 @@ def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=Non
             'loss': running_loss,
             }, savePath)
         
-def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, randomPts = 0, adjPts = 0):
+def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts = 0, adjPts = 0, psf=None, model=None):
     """
     Performs Matrix Inversion to get the originalOutput image with the source pts contribution.
     sourcePts with the same mask value are forced to have the same intensity
@@ -146,11 +146,14 @@ def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, r
     :param originalOutput: original output image
     :param mask: mask of the original output image
     :param sourcePts: source points of the original output image
-    :param PSFNet: our trained model
+    :param GetPSF: selected method to get PSF
     :param learningRate: learning rate of the matrix inversion
     :param randomPts: number of random points to be included in the matrix inversion
     :return: new image based on the originalOuput*(1-learningRate) + learningRate*newOutput
     """
+
+    assert(psf is not None or model is not None)
+
     additionalPts = []
     """
     #Include points along the edge
@@ -183,12 +186,18 @@ def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, r
     originalOutputSize = EuclideanDistance([0,0],[len(originalOutput),len(originalOutput[0])])
     print(maskedPts)
 
-    #Generate the matrix A
-    A = np.zeros((len(additionalPts), len(maskedPts)))
-    for i, x in enumerate(additionalPts):
-        for j, y in enumerate(sourcePts):
-            A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFModel(y,x,PSFNet,originalOutputSize)
-
+    if psf is not None:
+        #Generate the matrix A
+        A = np.zeros((len(additionalPts), len(maskedPts)))
+        for i, x in enumerate(additionalPts):
+            for j, y in enumerate(sourcePts):
+                A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFMatrix(y,x,psf)
+    if model is not None:
+        #Generate the matrix A
+        A = np.zeros((len(additionalPts), len(maskedPts)))
+        for i, x in enumerate(additionalPts):
+            for j, y in enumerate(sourcePts):
+                A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFModel(y,x,model,originalOutputSize)
     #Generate the vector b
     b = np.zeros((len(additionalPts), 1))
     for i, (x, y) in enumerate(additionalPts):
