@@ -181,12 +181,27 @@ def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts
     for i in range(randomPts):
         additionalPts.append([np.random.randint(0,len(originalOutput)),np.random.randint(0,len(originalOutput[0]))])
 
-    #Get adjacent points of source points
+    """
+    #Add adjacent points including the source points (allow repeats)
     for (x,y) in sourcePts:
         for i in range(-adjPts,adjPts+1):
             for j in range(-adjPts,adjPts+1):
                 if x+i >= 0 and x+i < len(originalOutput) and y+j >= 0 and y+j < len(originalOutput[0]):
                     additionalPts.append([x+i,y+j])
+    """
+
+    #Add adjacen points including the source pts (no repeats)
+    chosenPts = np.zeros((len(mask),len(mask[0])))
+    for (x,y) in sourcePts:
+        for i in range(-adjPts,adjPts+1):
+            for j in range(-adjPts,adjPts+1):
+                if x+i >= 0 and x+i < len(originalOutput) and y+j >= 0 and y+j < len(originalOutput[0]):
+                    chosenPts[x+i,y+j] = 1
+    
+    for x in range(len(chosenPts)):
+        for y in range(len(chosenPts[0])):
+            if chosenPts[x,y] == 1:
+                additionalPts.append([x,y])
 
     #Count number of unique masked points
     maskedPts = []
