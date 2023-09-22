@@ -3,7 +3,7 @@ from utils import GetSourcePts, EuclideanDistance, AverageFilter
 import random
 
 class Dataloader(torch.utils.data.Dataset):
-    def __init__(self, output, mask):
+    def __init__(self, output, mask, randomPts=0, adjPts=0):
         """
         Initialise the dataloader
         output: the output image
@@ -25,16 +25,23 @@ class Dataloader(torch.utils.data.Dataset):
             distanceMatrix.append(torch.tensor(distance))
             intensityMatrix.append(torch.tensor(intensty))
 
-        """
         #Add a bunch of random points
         for i in range(outputWidth*outputHeight):
             x = random.randint(0,maskWidth-1)
             y = random.randint(0,maskHeight-1)
             distance = [EuclideanDistance(sourcePts[k],(x,y))/maskSize for k in range(N)] #Normalise by diagonal length of mask
-            intensty = [AverageFilter(out,x,y)/65535] #Normalise by max intensity
+            intensty = [AverageFilter(out,x,y)/maxOutput] #Normalise by max intensity
             distanceMatrix.append(torch.tensor(distance))
             intensityMatrix.append(torch.tensor(intensty))
-        """
+        
+        for (x,y) in range(N):
+            for i in range(-adjPts,adjPts+1):
+                for j in range(-adjPts,adjPts+1):
+                    if x+i >= 0 and x+i < len(originalOutput) and y+j >= 0 and y+j < len(originalOutput[0]):
+                        distance = [EuclideanDistance(sourcePts[k],(x+i,y+j))/maskSize for k in range(N)]
+                        intensty = [AverageFilter(out,x+i,y+j)/maxOutput]
+                        distanceMatrix.append(torch.tensor(distance))
+                        intensityMatrix.append(torch.tensor(intensty))
 
         #Convert to tensor
         distanceMatrix = torch.stack(distanceMatrix)

@@ -137,7 +137,7 @@ def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=Non
             'loss': running_loss,
             }, savePath)
         
-def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, randomPts = 0):
+def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, randomPts = 0, adjPts = 0):
     """
     Performs Matrix Inversion to get the originalOutput image with the source pts contribution.
     sourcePts with the same mask value are forced to have the same intensity
@@ -152,6 +152,7 @@ def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, r
     :return: new image based on the originalOuput*(1-learningRate) + learningRate*newOutput
     """
     additionalPts = []
+    """
     #Include points along the edge
     for i in range(len(originalOutput)):
         additionalPts.append([i,0])
@@ -159,11 +160,18 @@ def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, r
     for i in range(len(originalOutput[0])):
         additionalPts.append([0,i])
         additionalPts.append([len(originalOutput)-1,i])
-    
+    """
+
     #Include random points
     for i in range(randomPts):
         additionalPts.append([np.random.randint(0,len(originalOutput)),np.random.randint(0,len(originalOutput[0]))])
 
+    #Get adjacent points of source points
+    for (x,y) in sourcePts:
+        for i in range(-adjPts,adjPts+1):
+            for j in range(-adjPts,adjPts+1):
+                if x+i >= 0 and x+i < len(originalOutput) and y+j >= 0 and y+j < len(originalOutput[0]):
+                    additionalPts.append([x+i,y+j])
 
     #Count number of unique masked points
     maskedPts = []
@@ -177,19 +185,14 @@ def InverseMatrix(originalOutput, mask, sourcePts, PSFNet, learningRate = 0.5, r
 
     #Generate the matrix A
     A = np.zeros((len(sourcePts) + len(additionalPts), len(maskedPts)))
-    for i, x in enumerate(sourcePts):
-        for j, y in enumerate(sourcePts):
-            A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFModel(y,x,PSFNet,originalOutputSize)
     for i, x in enumerate(additionalPts):
         for j, y in enumerate(sourcePts):
-            A[i+len(sourcePts), maskedPts.index(mask[y[0]][y[1]])] += GetPSFModel(y,x,PSFNet,originalOutputSize)
+            A[i, maskedPts.index(mask[y[0]][y[1]])] += GetPSFModel(y,x,PSFNet,originalOutputSize)
 
     #Generate the vector b
     b = np.zeros((len(sourcePts) + len(additionalPts), 1))
-    for i, (x, y) in enumerate(sourcePts):
-        b[i] = AverageFilter(originalOutput, x, y)
     for i, (x, y) in enumerate(additionalPts):
-        b[i+len(sourcePts)] = AverageFilter(originalOutput, x, y)
+        b[i] = AverageFilter(originalOutput, x, y)
     b = b / max(originalOutput.flatten())
 
     #Solve the matrix
