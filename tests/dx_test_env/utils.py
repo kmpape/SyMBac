@@ -1,7 +1,13 @@
 import pickle
 import torch
+import torch.utils.data
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
+from DataloaderBessel import DataloaderBessel
+from FirstOrderBesselApprox import FirstOrderBesselApprox
 
 def GetSourcePts(mask, filePath=None):
     """
@@ -242,3 +248,29 @@ def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts
         newOutput[x, y] = x_bar[maskedPts.index(mask[x][y])]
 
     return originalOutput*(1-learningRate) + learningRate*newOutput
+
+def ApproxPSFBessel(psf, trainingEpochs = 100):
+
+
+    data = DataloaderBessel(psf)
+    dataloader = torch.utils.data.DataLoader(data, batch_size=16, shuffle=True, num_workers=0)
+
+    model = FirstOrderBesselApprox()
+    criterion = nn.MSELoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0)
+
+    for e in range(trainingEpochs):
+        average_running_loss = 0.0
+        for i, data in enumerate(dataloader):
+            inputs, outputs = data
+            optimizer.zero_grad()
+            nn_outputs = model(inputs)
+            loss = criterion(nn_outputs.float(), outputs.float())
+            loss.backward()
+            optimizer.step()
+            average_running_loss += loss.item()
+        average_running_loss /= len(dataloader)
+        print("Epoch: ",e, " Loss: ",average_running_loss)
+        print(model.bessel_weight, model.offset)
+    
+    return model

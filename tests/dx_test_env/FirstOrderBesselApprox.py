@@ -3,23 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import math
+from scipy.special import jv
 
 class FirstOrderBesselApprox(nn.Module):
     def __init__(self):
         super(FirstOrderBesselApprox, self).__init__()
         self.offset = nn.Parameter(requires_grad=True)
+        self.bessel_weight = nn.Parameter(requires_grad=True)
     def getPSF(self,x):
-        stack = []
-        for i in range (1, 1+1):
-            stack.append(torch.pow(x,2*i))
-        x = torch.stack(stack, dim=2)
-        x = self.polynomial_weights(x)
-        x = x.reshape(x.shape[0],x.shape[1])
-        x = torch.exp(x)
-        x = x * (- math.pi/(2*self.polynomial_weights.weight.data))**0.5
+        x = x * self.bessel_weight
+        x = (2 * jv(1, x) / (x)) ** 2
+        if (x<1e-8): x = 1
+        x = x + self.offset
         return x
         
     def forward(self, x):
         x = self.getPSF(x)
-        x = self.actual_intensity(x)
         return x
