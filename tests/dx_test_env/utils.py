@@ -49,15 +49,6 @@ def AverageFilter(img, x, y, sz = 3):
     total/=sz*sz
     return total
 
-def EuclideanDistance(x,y):
-    """
-    Find the Euclidean distance between two points x and y
-    :param x: first point
-    :param y: second point
-    :return: Euclidean distance between x and y
-    """
-    return ((x[0]-y[0])**2 + (x[1]-y[1])**2)**0.5
-
 def GetPSFMatrix(origin,target,psf):
     """
     Get the point spread function magnitude at target given the origin and the psf in matrix form
@@ -83,7 +74,7 @@ def GetPSFModel(origin, target, model, diagonal):
     :param diagonal: diagonal of the image
     :return: the magnitude of the psf at target
     """
-    return model.getPSF(torch.tensor([[EuclideanDistance(origin,target)/diagonal]])).detach().numpy()[0]
+    return model.getPSF(torch.tensor([[np.linalg.norm(np.asarray(origin)-np.asarray(target))/diagonal]])).detach().numpy()[0]
     
 def PlotPSF(model,psf=None):
     """
@@ -216,7 +207,7 @@ def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts
             if mask[i,j] not in maskedPts and mask[i,j] != 0:
                 maskedPts.append(mask[i,j])
 
-    originalOutputSize = EuclideanDistance([0,0],[len(originalOutput),len(originalOutput[0])])
+    originalOutputSize = np.linalg.norm([len(originalOutput),len(originalOutput[0])])
     print(maskedPts)
 
     A = np.zeros((len(additionalPts), len(maskedPts)))

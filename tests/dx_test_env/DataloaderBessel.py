@@ -1,20 +1,18 @@
 import torch
 import torch.utils.data
-from utils import *
 import random
 import numpy as np
 
 class DataloaderBessel(torch.utils.data.Dataset):
     def __init__(self,psf):
-        psfShape = psf.shape
-        psfCentre = psfShape//2
+        psfCentre = (psf.shape[0]//2, psf.shape[1]//2)
 
         distance = np.zeros(len(psf))*len(psf[0])
         magnitude = np.zeros(len(psf))*len(psf[0])
 
         for i in range(len(psf)):
             for j in range(len(psf[0])):
-                distance[i*len(psf[0])+j] = EuclideanDistance((i,j),psfCentre)
+                distance[i*len(psf[0])+j] = np.linalg.norm(np.asarray((i,j))-np.asarray(psfCentre))
                 magnitude[i*len(psf[0])+j] = psf[i][j]
 
         self.distance = torch.tensor(distance)

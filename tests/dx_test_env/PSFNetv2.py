@@ -20,6 +20,7 @@ class PSFNet(nn.Module):
         for i in range (1, 1+1):
             stack.append(torch.pow(x,2*i))
         x = torch.stack(stack, dim=2)
+        x = x.float()
         x = self.polynomial_weights(x)
         x = x.reshape(x.shape[0],x.shape[1])
         x = torch.exp(x)
