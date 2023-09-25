@@ -1,6 +1,6 @@
 import torch
 import torch.utils.data
-from utils import EuclideanDistance
+from utils import *
 import random
 import numpy as np
 
