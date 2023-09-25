@@ -6,14 +6,16 @@ import numpy as np
 class DataloaderBessel(torch.utils.data.Dataset):
     def __init__(self,psf):
         psfCentre = (psf.shape[0]//2, psf.shape[1]//2)
+        psfSize = np.linalg.norm(psf.shape)
 
-        distance = np.zeros(len(psf))*len(psf[0])
-        magnitude = np.zeros(len(psf))*len(psf[0])
+        distance = []
+        magnitude = []
 
         for i in range(len(psf)):
             for j in range(len(psf[0])):
-                distance[i*len(psf[0])+j] = np.linalg.norm(np.asarray((i,j))-np.asarray(psfCentre))
-                magnitude[i*len(psf[0])+j] = psf[i][j]
+                if (i,j) != psfCentre:
+                    distance.append(np.linalg.norm(np.asarray((i,j))-np.asarray(psfCentre))/psfSize)
+                    magnitude.append(psf[i][j])
 
         self.distance = torch.tensor(distance)
         self.magnitude = torch.tensor(magnitude)

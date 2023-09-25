@@ -241,14 +241,21 @@ def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts
     return originalOutput*(1-learningRate) + learningRate*newOutput
 
 def ApproxPSFBessel(psf, trainingEpochs = 100):
-
+    """
+    Calculate PSF that best fits our inverse PSF
+    :param psf: psf to be approximated
+    :param trainingEpochs: number of epochs to train for
+    :return: the approximated psf
+    """
 
     data = DataloaderBessel(psf)
     dataloader = torch.utils.data.DataLoader(data, batch_size=16, shuffle=True, num_workers=0)
 
     model = FirstOrderBesselApprox()
+    model.offset.data = torch.tensor([0.0])
+    model.bessel_weight.data = torch.tensor([1.0])
     criterion = nn.MSELoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0)
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.5)
 
     for e in range(trainingEpochs):
         average_running_loss = 0.0
@@ -262,6 +269,13 @@ def ApproxPSFBessel(psf, trainingEpochs = 100):
             average_running_loss += loss.item()
         average_running_loss /= len(dataloader)
         print("Epoch: ",e, " Loss: ",average_running_loss)
-        print(model.bessel_weight, model.offset)
+        print(model.bessel_weight.data, model.offset.data)
     
-    return model
+    newPSF = np.zeros((len(psf),len(psf[0])))
+    for i in range(len(newPSF)):
+        for j in range(len(newPSF[0])):
+            newPSF[i,j] = model.getPSF(torch.tensor([[np.linalg.norm(np.asarray((i,j))-np.asarray((len(psf)//2,len(psf[0])//2)))/np.linalg.norm(np.asarray((len(psf)//2,len(psf[0])//2)))]])).detach().numpy()[0]
+
+    newPSF[len(psf)//2,len(psf[0])//2] = 1
+
+    return newPSF
