@@ -8,6 +8,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from DataloaderBessel import DataloaderBessel
 from FirstOrderBesselApprox import FirstOrderBesselApprox
+from scipy.special import jv
+from scipy.optimize import curve_fit
 
 def GetSourcePts(mask, filePath=None):
     """
@@ -112,9 +114,9 @@ def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=Non
         average_running_loss = 0.0
         for i, data in enumerate(dataloader):
             inputs, outputs = data
-            optimizer.zero_grad()
             nn_outputs = model(inputs)
             loss = lossCriterion(nn_outputs.float(), outputs.float())
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             average_running_loss += loss.item()
@@ -240,30 +242,29 @@ def InverseMatrix(originalOutput, mask, sourcePts, learningRate = 0.5, randomPts
 
     return originalOutput*(1-learningRate) + learningRate*newOutput
 
-def ApproxPSFBessel(psf, trainingEpochs = 100):
+def ApproxPSFBesselModel(psf, trainingEpochs = 100):
     """
-    Calculate PSF that best fits our inverse PSF
+    Calculate PSF that best fits our inverse PSF from the model
     :param psf: psf to be approximated
     :param trainingEpochs: number of epochs to train for
     :return: the approximated psf
     """
-
     data = DataloaderBessel(psf)
-    dataloader = torch.utils.data.DataLoader(data, batch_size=16, shuffle=True, num_workers=0)
+    dataloader = torch.utils.data.DataLoader(data, batch_size=1, shuffle=True, num_workers=0)
 
     model = FirstOrderBesselApprox()
     model.offset.data = torch.tensor([0.0])
-    model.bessel_weight.data = torch.tensor([1.0])
+    model.bessel_weight.data = torch.tensor([100.0])
     criterion = nn.MSELoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.5)
+    optimizer = optim.SGD(model.parameters(), lr=0.005, momentum=0.5)
 
     for e in range(trainingEpochs):
         average_running_loss = 0.0
         for i, data in enumerate(dataloader):
             inputs, outputs = data
-            optimizer.zero_grad()
             nn_outputs = model(inputs)
             loss = criterion(nn_outputs.float(), outputs.float())
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             average_running_loss += loss.item()
@@ -277,5 +278,34 @@ def ApproxPSFBessel(psf, trainingEpochs = 100):
             newPSF[i,j] = model.getPSF(torch.tensor([[np.linalg.norm(np.asarray((i,j))-np.asarray((len(psf)//2,len(psf[0])//2)))/np.linalg.norm(np.asarray((len(psf)//2,len(psf[0])//2)))]])).detach().numpy()[0]
 
     newPSF[len(psf)//2,len(psf[0])//2] = 1
+    return newPSF
 
+def ApproxPSFBesselOptimise(psf, cutoff = 0):
+    """
+    Calculate PSF that best fits our inverse PSF from the oprimisation
+
+    """
+    def funcPSF(x,a):
+        return (2*jv(1,x*a) / (x*a))**2
+
+    xData = []
+    yData = []
+    psfSize = np.linalg.norm(psf.shape)/2
+    psfCentre = (psf.shape[0]//2, psf.shape[1]//2)
+
+    for i in range(len(psf)):
+        for j in range(len(psf[0])):
+            if (i,j) != psfCentre and psf[i][j] > cutoff:
+                xData.append(np.linalg.norm(np.asarray((i,j))-np.asarray(psfCentre))/psfSize)
+                yData.append(psf[i][j])
+    
+    popt, pcov = curve_fit(funcPSF, xData, yData, p0=[100])
+
+    print(popt,pcov)
+    newPSF = np.zeros((len(psf),len(psf[0])))
+    for i in range(len(newPSF)):
+        for j in range(len(newPSF[0])):
+            newPSF[i,j] = funcPSF(np.linalg.norm(np.asarray((i,j))-np.asarray((len(psf)//2,len(psf[0])//2)))/np.linalg.norm(np.asarray((len(psf)//2,len(psf[0])//2))),popt[0])
+
+    newPSF[len(psf)//2,len(psf[0])//2] = 1
     return newPSF
