@@ -83,8 +83,8 @@ class ColonyRenderer:
             bg = self.random_perlin_generator()
             convolved += gaussian_filter(np.rot90(bg)/np.random.uniform(1000,3000), np.random.uniform(1,3), mode="reflect")
 
-        #convolved = random_noise((convolved), mode="poisson")
-        #convolved = random_noise((convolved), mode="gaussian", mean=1, var=0.0002, clip=False)
+        convolved = random_noise((convolved), mode="poisson")
+        convolved = random_noise((convolved), mode="gaussian", mean=1, var=0.0002, clip=False)
 
         convolved = rescale_intensity(convolved.astype(np.float32), out_range=(0, np.iinfo(np.uint16).max)).astype(np.uint16)
 
