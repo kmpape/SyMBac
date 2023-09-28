@@ -283,7 +283,9 @@ def ApproxPSFBesselModel(psf, trainingEpochs = 100):
 def ApproxPSFBesselOptimise(psf, cutoff = 0):
     """
     Calculate PSF that best fits our inverse PSF from the oprimisation
-
+    :param psf: psf from inverse fourier
+    :param cutoff: cutoff magnitude for consideration in the inverse matrix
+    :return: the approximated psf
     """
     def funcPSF(x,a):
         return (2*jv(1,x*a) / (x*a))**2
