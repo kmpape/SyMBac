@@ -91,7 +91,35 @@ def PlotPSF(model,psf=None):
     psf_y = psf.detach().numpy().flatten()
     plt.plot(psf_x,psf_y)
     plt.show()
+
+def GetAvgIntensityWithMask(img, mask, sourcePts=None):
     
+    """
+    Get Avg Intensity from the image with the mask
+    :param img: image to get the average intensity from
+    :param mask: mask to get the average intensity from
+    :param sourcePts: source points of the mask
+    :return: the average intensity of the image with the mask
+    """
+
+    if (sourcePts is None):
+        sourcePts = GetSourcePts(mask)
+    
+    avg_intensity = {}
+    for x in sourcePts:
+        if not mask[x[0],x[1]] in avg_intensity:
+            avg_intensity[mask[x[0],x[1]]] = [img[x[0],x[1]],1]
+        else:
+            avg_intensity[mask[x[0],x[1]]][0] += img[x[0],x[1]]
+            avg_intensity[mask[x[0],x[1]]][1] += 1
+
+    avg_intensity = [ v[0]/v[1] for k, v in avg_intensity.items() ]
+    avg_intensity = np.array(avg_intensity)
+    avg_intensity = avg_intensity/max(avg_intensity)
+
+    return avg_intensity
+
+
 def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=None,displayGraph=False,minLoss=0):
     """
     This is our main training loop for our PSF Net
