@@ -315,6 +315,9 @@ def ApproxPSFBesselOptimise(psf, cutoff = 0):
     :param cutoff: cutoff magnitude for consideration in the inverse matrix
     :return: the approximated psf
     """
+
+    psf = psf/np.max(psf)
+
     def funcPSF(x,a):
         return (2*jv(1,x*a) / (x*a))**2
 
