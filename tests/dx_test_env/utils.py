@@ -122,7 +122,7 @@ def GetAvgIntensityWithMask(img, mask, sourcePts=None):
 
     if (sourcePts is None):
         sourcePts = GetSourcePts(mask)
-    
+
     avg_intensity = {}
     for x in sourcePts:
         if not mask[x[0],x[1]] in avg_intensity:
