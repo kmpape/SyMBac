@@ -18,20 +18,38 @@ def GetSourcePts(mask, filePath=None):
     :param filePath: path to save the source points to
     :return: the source points
     """
-    sourcePts = []
-
-    (maskWidth, maskHeight) = mask.shape
-
-    for i in range(maskWidth):
-        for j in range(maskHeight):
-            if mask[i,j] != 0:
-                sourcePts.append([i,j])
+    sourcePts = np.where(mask != 0)
+    sourcePts = np.transpose(sourcePts)
     if filePath is not None:
         with open(filePath + '/sourcePts.pkl', 'wb') as file: 
             pickle.dump(sourcePts, file)
 
-    return sourcePts
+    return np.asarray(sourcePts)
 
+def GetMidPts(mask, filePath=None):
+    """
+    Set the mid points of each mask and save them to a file
+    :param mask: mask to get the mid points from
+    :param filePath: path to save the mid points to
+    :return: the mid points
+    """
+    
+    maskUsed = []
+    midPts = []
+    (maskWidth, maskHeight) = mask.shape
+
+    for i in range(maskWidth):
+        for j in range(maskHeight):
+            if (mask[i,j] not in maskUsed and mask[i,j] != 0):
+                indices = np.where(mask == mask[i,j])
+                midPts.append((int(np.mean(indices[0])), int(np.mean(indices[1]))))
+                maskUsed.append(mask[i,j])
+
+    if filePath is not None:
+        with open(filePath + '/midPts.pkl', 'wb') as file: 
+            pickle.dump(midPts, file)
+
+    return np.asarray(midPts)
 
 def AverageFilter(img, x, y, sz = 3):
     """
@@ -113,11 +131,12 @@ def GetAvgIntensityWithMask(img, mask, sourcePts=None):
             avg_intensity[mask[x[0],x[1]]][0] += img[x[0],x[1]]
             avg_intensity[mask[x[0],x[1]]][1] += 1
 
-    avg_intensity = [ v[0]/v[1] for k, v in avg_intensity.items() ]
+    mask_value = avg_intensity.keys()
+    avg_intensity = [v[0]/v[1] for k, v in avg_intensity.items() ]
     avg_intensity = np.array(avg_intensity)
     avg_intensity = avg_intensity/max(avg_intensity)
 
-    return avg_intensity
+    return mask_value, avg_intensity
 
 
 def TrainingLoop(model,dataloader,lossCriterion,optimizer,epochs=50,savePath=None,displayGraph=False,minLoss=0):
