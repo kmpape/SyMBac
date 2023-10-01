@@ -158,3 +158,4 @@ pyvenv.cfg
 tests/dx_test_env/data
 *.pkl
 *.pt
+*.csv
