@@ -87,6 +87,21 @@ def gen_cell_props_for_draw(cell_timeseries_lists, ID_props):
                                 separation])
     return cell_properties
 
+def get_crop_bounds_2D(img, tol=0):
+    mask = img>tol
+    x_idx = np.ix_(mask.any(1),mask.any(0))
+    start_row, stop_row, start_col, stop_col = x_idx[0][0][0], x_idx[0][-1][0], x_idx[1][0][0], x_idx[1][0][-1]
+
+    return (start_row, stop_row), (start_col, stop_col)
+
+def crop_image(img, rows, cols, pad):
+    (start_row, stop_row) = rows
+    (start_col, stop_col) = cols
+    if len(img.shape)==3:
+        return np.pad(img[:,start_row:stop_row, start_col:stop_col], ((0,0),(pad,pad),(pad,pad)))
+    else:
+        return np.pad(img[start_row:stop_row, start_col:stop_col], pad)
+
 
 def raster_cell(length, width, separation, pinching=True, FL = False):
     """
@@ -163,6 +178,41 @@ def OPL_to_FL(cell, density):
     for c in choices:
         FL_cell[indices[c]] += 1
     return FL_cell
+
+
+@njit
+def generate_deviation_from_CL(centreline, thickness):
+    return np.arange(thickness) + centreline - int(np.ceil(thickness ))
+
+@njit
+def gen_3D_coords_from_2D(test_cells, centreline, thickness):
+    return np.where(test_cells == thickness) + (generate_deviation_from_CL(centreline, thickness),)
+
+@njit
+def convert_to_3D_numba(cell):
+    expanded_scene = cell
+    volume_shape = expanded_scene.shape[0:] + (int(expanded_scene.max()*2),)
+    test_cells = rounder(expanded_scene)
+    centreline = int(expanded_scene.max() )
+    cells_3D = np.zeros(volume_shape,dtype = np.ubyte)
+    for t in range(int(expanded_scene.max() *2 )):
+        test_coords = gen_3D_coords_from_2D(test_cells, centreline, t)
+        for x, y in zip(test_coords[0], (test_coords[1])):
+            for z in test_coords[2]:
+                cells_3D[x, y, z] = 1
+    return cells_3D
+
+@njit
+def rounder(x):
+    out = np.empty_like(x)
+    np.round(x, 0, out)
+    return out
+
+def convert_to_3D(cell):
+    cells_3D = convert_to_3D_numba(cell)
+    cells_3D = np.moveaxis(cells_3D, -1, 0)
+    cells_3D[cells_3D.shape[0]//2:,:, :] = cells_3D[:cells_3D.shape[0]//2,:, :][::-1]
+    return cells_3D
 
 def draw_scene(cell_properties, do_transformation, space_size, offset, label_masks, pinching=True):
     """

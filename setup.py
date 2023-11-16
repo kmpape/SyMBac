@@ -4,7 +4,7 @@ this_directory = Path(__file__).parent
 
 setup(
     name = 'SyMBac',
-    version = '0.3.1',
+    version = '0.4.1',
     description = 'A package for generating synthetic images of bactera in phase contrast or fluorescence. Used for creating training data for machine learning segmentation and tracking algorithms.',
     url = 'https://github.com/georgeoshardo/SyMBac',
     author = 'Georgeos Hardo',
@@ -16,7 +16,7 @@ setup(
     long_description = (this_directory / "README.md").read_text(), 
     long_description_content_type = 'text/markdown',
     install_requires = [
-        'tifffile',
+        'tifffile==2023.2.3',
         'scikit-image',
         'matplotlib==3.4.3',
         "tqdm",
@@ -31,7 +31,14 @@ setup(
         "raster-geometry==0.1.4.1",
         "matplotlib-scalebar==0.7.2",
         "psfmodels",
-        "numba==0.56.4"
+        "numba==0.56.4",
+        "sphinx_automodapi",
+        "sphinx-autobuild",
+        "nbsphinx",
+        "sphinx_copybutton",
+        "sphinx_rtd_theme",
+        "pandoc",
+        "zarr"
         ],
 
     classifiers = [

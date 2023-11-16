@@ -26,9 +26,10 @@ from numpy import fft
 from PIL import Image
 from SyMBac.PSF import PSF_generator
 from SyMBac.pySHINE import cart2pol, sfMatch, lumMatch
+from skimage.filters import threshold_multiotsu
+import random
 
-USE_CUPY = True
-if not USE_CUPY:  # importlib.util.find_spec("cupy") is None:
+if importlib.util.find_spec("cupy") is None:
     from scipy.signal import convolve2d as cuconvolve
 
     njobs = -1
@@ -91,14 +92,13 @@ else:
             The output of the convolution rescale operation
         """
 
-        output = cuconvolve(cp.array(image), cp.array(kernel))
+        output = cuconvolve(cp.array(image), cp.array(kernel),mode="constant")
         output = output.get()
         output = rescale(output, rescale_factor, anti_aliasing=False)
 
         if rescale_int:
             output = rescale_intensity(output.astype(np.float32), out_range=(0, 1))
         return output
-
 
 class Renderer:
     """
@@ -123,13 +123,14 @@ class Renderer:
 
     """
 
-    def __init__(self, simulation, PSF, real_image, camera=None):
+    def __init__(self, simulation, PSF, real_image, camera=None, additional_real_images = None):
         """
 
         :param SyMBac.simulation.Simulation simulation: The SyMBac simulation.
         :param SyMBac.psf.PSF_generator PSF: The PSF to be applied to the synthetic data.
         :param np.ndarray real_image: A real image sample
         :param SyMBac.PSF.Camera camera: (optional) The simulation camera object to be applied to the synthetic data
+        :param List additional_real_images: List of additional images which will be randomly used to fourier match during the rendering process.
         """
         self.real_image = real_image
         self.PSF = PSF
@@ -139,8 +140,9 @@ class Renderer:
         media_multiplier = 30
         cell_multiplier = 1
         device_multiplier = -50
-        self.y_border_expansion_coefficient = 3  # 2
-        self.x_border_expansion_coefficient = 3  # 2
+        self.y_border_expansion_coefficient = 5
+        self.x_border_expansion_coefficient = 5
+        self.additional_real_images = additional_real_images
 
         temp_expanded_scene, temp_expanded_scene_no_cells, temp_expanded_mask = self.generate_PC_OPL(
             scene=simulation.OPL_scenes[-1],
@@ -176,40 +178,31 @@ class Renderer:
             mean_error, media_error, cell_error, device_error, mean_var_error, media_var_error, cell_var_error,
             device_var_error)
 
-    def select_intensity_napari(self, fname_param=""):
-        if (not fname_param) or (not os.path.isfile(fname_param)):
-            viewer = napari.view_image(self.real_resize)
-            media_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Media")
-            cell_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Cell")
-            device_label = viewer.add_labels(np.zeros(self.real_resize.shape).astype(int), name="Device")
-            viewer.show(block=True)
-
-            self.real_media_mean = self.real_resize[np.where(media_label.data)].mean()
-            self.real_cell_mean = self.real_resize[np.where(cell_label.data)].mean()
-            self.real_device_mean = self.real_resize[np.where(device_label.data)].mean()
-            self.real_media_var = self.real_resize[np.where(media_label.data)].var()
-            self.real_cell_var = self.real_resize[np.where(cell_label.data)].var()
-            self.real_device_var = self.real_resize[np.where(device_label.data)].var()
-            assert (self.real_media_mean > 0) and (self.real_cell_mean > 0) and (self.real_device_mean > 0), \
-                "Expected positive means, received media_mean={}, media_mean={}, media_mean={}".format(
-                    self.real_media_mean, self.real_cell_mean, self.real_device_mean)
-            if fname_param:
-                save_param = (self.real_media_mean, self.real_cell_mean, self.real_device_mean,
-                              self.real_media_var, self.real_cell_var, self.real_device_var)
-                with open(fname_param, "wb") as f:
-                    pickle.dump(save_param, f, pickle.HIGHEST_PROTOCOL)
+    def select_intensity_napari(self, auto = True, classes = 3, cells = "dark"):
+        if auto:
+            thresholds = threshold_multiotsu(self.real_resize, classes = classes)
+            regions = np.digitize(self.real_resize, bins=thresholds)
+            if cells == "dark":
+                thresh_media = (regions == 2) * 1
+                thresh_cells = (regions == 1) * 2
+                thresh_device = (regions == 0) * 3
+            elif cells == "light":
+                thresh_media = ((regions == 0)) * 1
+                thresh_cells = ((regions == 1)) * 2
+                thresh_device = ((regions == 2)) * 3
         else:
-            print("Loading mask from {}".format(fname_param))  # TODO: use logger
-            saved_param = pickle.load(open(fname_param, "rb"))
-            self.real_media_mean, self.real_cell_mean, self.real_device_mean = saved_param[:3]
-            self.real_media_var, self.real_cell_var, self.real_device_var = saved_param[3:]
-
-        self.real_means = np.array((self.real_media_mean, self.real_cell_mean, self.real_device_mean))
-        self.real_vars = np.array((self.real_media_var, self.real_cell_var, self.real_device_var))
+            thresh_media = np.zeros(self.real_resize.shape).astype(int)
+            thresh_cells = np.zeros(self.real_resize.shape).astype(int)
+            thresh_device = np.zeros(self.real_resize.shape).astype(int)
+        viewer = napari.view_image(self.real_resize)
+        self.media_label = viewer.add_labels(thresh_media, name="Media")
+        self.cell_label = viewer.add_labels(thresh_cells, name="Cell")
+        self.device_label = viewer.add_labels(thresh_device, name="Device")
 
     def generate_test_comparison(self, media_multiplier=75, cell_multiplier=1.7, device_multiplier=29, sigma=8.85,
                                  scene_no=-1, match_fourier=False, match_histogram=True, match_noise=False,
-                                 debug_plot=False, noise_var=0.001, defocus=3.0):
+                                 debug_plot=False, noise_var=0.001, defocus=3.0, halo_top_intensity=1,
+                                 halo_bottom_intensity=1, halo_start=0, halo_end=1, random_real_image=None):
         """
         Takes all the parameters we've defined and calculated, and uses them to finally generate a synthetic image.
 
@@ -255,6 +248,12 @@ class Renderer:
             If true converts image to a fluorescence (hides the trench and swaps to the fluorescence PSF).
         defocus : float
             Simulated optical defocus by convolving the kernel with a 2D gaussian of radius defocus.
+        halo_top_intensity : float
+            Simulated "halo" caused by the microfluidic device. This sets the starting muliplier of a linear ramp which is applied down the length of the image in the direction of the trench. , 
+        halo_bottom_intensity : float
+            Simulated "halo" caused by the microfluidic device. This sets the ending multiplier of a lienar ramp which is applied down the length of the image. E.g, if ``image`` has shape ``(y, x)``, then this results in ``image = image * np.linspace(halo_lower_int,halo_upper_int, image.shape[0])[:, None]``.
+
+
 
         Returns
         -------
@@ -275,11 +274,27 @@ class Renderer:
             defocus=defocus
         )
 
+        ### Halo simulation
+        def halo_line_profile(length, halo_top_intensity, halo_bottom_intensity, halo_start, halo_end):
+            halo_start = int(halo_start * length)
+            halo_end = int(halo_end * length)
+            part_1 = np.linspace(halo_bottom_intensity, halo_bottom_intensity, halo_start)
+            part_2 = np.linspace(halo_bottom_intensity, halo_top_intensity, halo_end - halo_start)
+            part_3 = np.linspace(halo_top_intensity, halo_top_intensity, length - halo_end)
+            a = np.concatenate([part_1, part_2, part_3])[:, None]
+            return a
+
+        # halo_array = np.linspace(halo_lower_int,halo_upper_int, expanded_scene.shape[0])[:, None]
+        halo_array = halo_line_profile(self.real_image.shape[0] * self.simulation.resize_amount, halo_top_intensity,
+                                       halo_bottom_intensity, halo_start, halo_end)
+        # halo_array[halo_start:] = 1
+        expanded_scene[expanded_scene.shape[0] - len(halo_array):, :] *= halo_array
+        expanded_scene_no_cells[expanded_scene_no_cells.shape[0] - len(halo_array):, :] *= halo_array
+
         if self.PSF.mode == "phase contrast":
             R, W, radius, scale, NA, n, _, λ = self.PSF.R, self.PSF.W, self.PSF.radius, self.PSF.scale, self.PSF.NA, self.PSF.n, self.PSF.apo_sigma, self.PSF.wavelength
         else:
             radius, scale, NA, n, _, λ = self.PSF.radius, self.PSF.scale, self.PSF.NA, self.PSF.n, self.PSF.apo_sigma, self.PSF.wavelength
-
         real_media_mean, real_cell_mean, real_device_mean, real_means, real_media_var, real_cell_var, real_device_var, real_vars = self.image_params
         mean_error, media_error, cell_error, device_error, mean_var_error, media_var_error, cell_var_error, device_var_error = self.error_params
 
@@ -289,7 +304,7 @@ class Renderer:
                                      pix_mic_conv=self.simulation.pix_mic_conv, apo_sigma=sigma, mode="phase contrast",
                                      condenser=self.PSF.condenser)
             self.PSF.calculate_PSF()
-        if self.PSF.mode == "3d fluo":  # Full 3D PSF model
+        if len(self.PSF.kernel.shape) == 3:  # Full 3D PSF model
             def generate_deviation_from_CL(centreline, thickness):
                 return np.arange(thickness) + centreline - int(np.ceil(thickness / 2))
 
@@ -321,7 +336,11 @@ class Renderer:
             convolved = convolve_rescale(expanded_scene, kernel, 1 / self.simulation.resize_amount, rescale_int=True)
 
         real_resize, expanded_resized = make_images_same_shape(self.real_image, convolved, rescale_int=True)
-        fftim1 = fft.fftshift(fft.fft2(real_resize))
+        if random_real_image is not None:
+            fftim1 = fft.fftshift(fft.fft2(random_real_image))
+        else:
+            fftim1 = fft.fftshift(fft.fft2(real_resize))
+
         angs, mags = cart2pol(np.real(fftim1), np.imag(fftim1))
 
         if match_fourier and not match_histogram:
@@ -333,11 +352,11 @@ class Renderer:
         if match_histogram and match_fourier:
             matched = sfMatch([real_resize, matched], tarmag=mags)[1]
             matched = lumMatch([real_resize, matched], None, [np.mean(real_resize), np.std(real_resize)])[1]
-            matched = match_histograms(matched, real_resize, multichannel=False)
+            matched = match_histograms(matched, real_resize)
         else:
             pass
         if match_histogram:
-            matched = match_histograms(matched, real_resize, multichannel=False)
+            matched = match_histograms(matched, real_resize)
         else:
             pass
 
@@ -354,7 +373,7 @@ class Renderer:
             noisy_img = random_noise(rescale_intensity(noisy_img), mode="gaussian", mean=0, var=noise_var, clip=False)
 
         if match_noise:
-            noisy_img = match_histograms(noisy_img, real_resize, multichannel=False)
+            noisy_img = match_histograms(noisy_img, real_resize)
         else:
             pass
         noisy_img = rescale_intensity(noisy_img.astype(np.float32), out_range=(0, 1))
@@ -621,12 +640,17 @@ class Renderer:
             match_noise=[True, False],
             debug_plot=fixed(True),
             defocus=(0, 20, 0.1),
+            halo_top_intensity = (0,1,0.1), 
+            halo_bottom_intensity = (0,1,0.1),
+            halo_start = (0,1,0.11),
+            halo_end = (0,1,0.1),
+            random_real_image=fixed(None)
         )
         display()
         return self.params
 
     def generate_training_data(self, sample_amount, randomise_hist_match, randomise_noise_match,
-                               burn_in, n_samples, save_dir, in_series=False, seed=False):
+                               burn_in, n_samples, save_dir, in_series=False, seed=False, n_jobs=1, dtype=np.uint8):
         """
         Generates the training data from a Jupyter interactive output of generate_test_comparison
 
@@ -671,16 +695,40 @@ class Renderer:
 
         current_file_num = len(os.listdir(save_dir + "/convolutions"))
 
-        def generate_samples(z):
-            media_multiplier = np.random.uniform(1 - sample_amount, 1 + sample_amount) * self.params.kwargs[
-                "media_multiplier"]
-            cell_multiplier = np.random.uniform(1 - sample_amount, 1 + sample_amount) * self.params.kwargs[
-                "cell_multiplier"]
-            device_multiplier = np.random.uniform(1 - sample_amount, 1 + sample_amount) * self.params.kwargs[
-                "device_multiplier"]
-            sigma = np.random.uniform(1 - sample_amount, 1 + sample_amount) * self.params.kwargs["sigma"]
+        if in_series:
+            series_len = (self.simulation.sim_length) - burn_in
+            n_series_to_sim = int(np.ceil(n_samples / series_len))
+
+            media_multiplier_modifiers = np.repeat(
+                [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in range(n_series_to_sim)], series_len)
+            cell_multiplier_modifiers = np.repeat(
+                [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in range(n_series_to_sim)], series_len)
+            device_multiplier_modifiers = np.repeat(
+                [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in range(n_series_to_sim)], series_len)
+            sigma_modifiers = np.repeat(
+                [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in range(n_series_to_sim)], series_len)
+
+        else:
+            media_multiplier_modifiers = [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in
+                                          range(n_samples)]
+            cell_multiplier_modifiers = [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in
+                                         range(n_samples)]
+            device_multiplier_modifiers = [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in
+                                           range(n_samples)]
+            sigma_modifiers = [np.random.uniform(1 - sample_amount, 1 + sample_amount) for _ in range(n_samples)]
+
+        def generate_samples(z, media_multiplier_modifier, cell_multiplier_modifier, device_multiplier_modifier,
+                             sigma_modifier):
+
+            media_multiplier = media_multiplier_modifier * self.params.kwargs["media_multiplier"]
+            cell_multiplier = cell_multiplier_modifier * self.params.kwargs["cell_multiplier"]
+            device_multiplier = device_multiplier_modifier * self.params.kwargs["device_multiplier"]
+            sigma = sigma_modifier * self.params.kwargs["sigma"]
+
             if in_series:
-                scene_no = burn_in + z % (self.simulation.sim_length - 2)
+                scene_no = (np.arange(burn_in, self.simulation.sim_length).tolist() * n_series_to_sim)[
+                    z]  # burn_in + z % (self.simulation.sim_length - 2)
+                # print(z, scene_no, media_multiplier)
                 # can maybe re-run run_simulation and draw_scene when this loops back to 0
             else:
                 scene_no = np.random.randint(burn_in, self.simulation.sim_length - 2)
@@ -693,6 +741,9 @@ class Renderer:
             else:
                 match_noise = self.params.kwargs["match_noise"]
 
+            if self.additional_real_images:
+                random_real_image = random.choice(self.additional_real_images)
+
             syn_image, mask = self.generate_test_comparison(
                 media_multiplier=media_multiplier,
                 cell_multiplier=cell_multiplier,
@@ -704,7 +755,12 @@ class Renderer:
                 match_noise=match_noise,
                 debug_plot=False,
                 noise_var=self.params.kwargs["noise_var"],
-                defocus=self.params.kwargs["defocus"]
+                defocus=self.params.kwargs["defocus"],
+                halo_top_intensity=self.params.kwargs["halo_top_intensity"],
+                halo_bottom_intensity=self.params.kwargs["halo_bottom_intensity"],
+                halo_start=self.params.kwargs["halo_start"],
+                halo_end=self.params.kwargs["halo_end"],
+                random_real_image=random_real_image
             )
 
             syn_image = Image.fromarray(skimage.img_as_uint(rescale_intensity(syn_image)))
@@ -712,11 +768,17 @@ class Renderer:
 
             if (cell_multiplier == 0) or (cell_multiplier == 0.0):
                 mask = np.zeros(mask.shape)
-                mask = Image.fromarray(mask.astype(np.uint8))
+                mask = Image.fromarray(mask.astype(dtype))
                 mask.save("{}/masks/synth_{}.tif".format(save_dir, str(z).zfill(5)))
             else:
-                mask = Image.fromarray(mask.astype(np.uint8))
+                mask = Image.fromarray(mask.astype(dtype))
                 mask.save("{}/masks/synth_{}.tif".format(save_dir, str(z).zfill(5)))
 
-        Parallel(n_jobs=njobs)(delayed(generate_samples)(z) for z in
-                               tqdm(range(current_file_num, n_samples + current_file_num), desc="Sample generation"))
+        Parallel(n_jobs=n_jobs, backend="threading")(
+            delayed(generate_samples)(z, media_multiplier_modifier, cell_multiplier_modifier,
+                                      device_multiplier_modifier, sigma_modifier) for
+            z, media_multiplier_modifier, cell_multiplier_modifier, device_multiplier_modifier, sigma_modifier in
+            tqdm(
+                zip(range(current_file_num, n_samples + current_file_num), media_multiplier_modifiers,
+                    cell_multiplier_modifiers, device_multiplier_modifiers, sigma_modifiers)
+                , desc="Sample generation"))
