@@ -161,6 +161,7 @@ class Renderer:
             temp_kernel = self.PSF.kernel
 
         convolved = convolve_rescale(temp_expanded_scene, temp_kernel, 1 / simulation.resize_amount, rescale_int=True)
+        print(convolved.shape)
         self.real_resize, self.expanded_resized = make_images_same_shape(real_image, convolved, rescale_int=True)
         mean_error = []
         media_error = []
@@ -626,7 +627,8 @@ class Renderer:
         return self.params
 
     def generate_training_data(self, sample_amount, randomise_hist_match, randomise_noise_match,
-                               burn_in, n_samples, save_dir, in_series=False, seed=False):
+                               burn_in, n_samples, save_dir, in_series=False, seed=False,
+                               save_dir_convolutions="img", save_dir_masks="seg"):
         """
         Generates the training data from a Jupyter interactive output of generate_test_comparison
 
@@ -661,15 +663,15 @@ class Renderer:
         except:
             pass
         try:
-            os.mkdir(save_dir + "/convolutions")
+            os.mkdir(save_dir + "/" + save_dir_convolutions)
         except:
             pass
         try:
-            os.mkdir(save_dir + "/masks")
+            os.mkdir(save_dir + "/" + save_dir_masks)
         except:
             pass
 
-        current_file_num = len(os.listdir(save_dir + "/convolutions"))
+        current_file_num = len(os.listdir(save_dir + "/" + save_dir_convolutions))  # TODO: bug alert if folder is not empty
 
         def generate_samples(z):
             media_multiplier = np.random.uniform(1 - sample_amount, 1 + sample_amount) * self.params.kwargs[
@@ -708,15 +710,15 @@ class Renderer:
             )
 
             syn_image = Image.fromarray(skimage.img_as_uint(rescale_intensity(syn_image)))
-            syn_image.save("{}/convolutions/synth_{}.tif".format(save_dir, str(z).zfill(5)))
+            syn_image.save("{}/{}/synth_{}.tif".format(save_dir, save_dir_convolutions, str(z).zfill(5)))
 
             if (cell_multiplier == 0) or (cell_multiplier == 0.0):
                 mask = np.zeros(mask.shape)
                 mask = Image.fromarray(mask.astype(np.uint8))
-                mask.save("{}/masks/synth_{}.tif".format(save_dir, str(z).zfill(5)))
+                mask.save("{}/{}/synth_{}.tif".format(save_dir, save_dir_masks, str(z).zfill(5)))
             else:
                 mask = Image.fromarray(mask.astype(np.uint8))
-                mask.save("{}/masks/synth_{}.tif".format(save_dir, str(z).zfill(5)))
+                mask.save("{}/{}/synth_{}.tif".format(save_dir, save_dir_masks, str(z).zfill(5)))
 
         Parallel(n_jobs=njobs)(delayed(generate_samples)(z) for z in
                                tqdm(range(current_file_num, n_samples + current_file_num), desc="Sample generation"))
