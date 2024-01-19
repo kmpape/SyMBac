@@ -149,16 +149,16 @@ class Cell:
             self.length = length_old / 2 * 0.98 # Why the 0.98?
             daughter_length = length_old / 2 * 0.98
             self.pinching_sep = 0
-            x_mother = self.position[0] - self.division_sign * self.length/2 *  np.cos(self.angle)
-            y_mother = self.position[1] + self.division_sign * self.length/2 *  np.sin(self.angle)
-            x_daughter = self.position[0] + self.division_sign * daughter_length/2 *  np.cos(self.angle)
-            y_daughter = self.position[1] - self.division_sign * daughter_length/2 *  np.sin(self.angle)
+            x_mother = self.position[0] - self.division_sign * self.length/2 *  np.cos(self.angle - np.pi/2)  # TODO sign here
+            y_mother = self.position[1] + self.division_sign * self.length/2 *  np.sin(self.angle - np.pi/2)
+            x_daughter = self.position[0] + self.division_sign * daughter_length/2 *  np.cos(self.angle - np.pi/2)
+            y_daughter = self.position[1] - self.division_sign * daughter_length/2 *  np.sin(self.angle - np.pi/2)
 
             self.body, self.shape = Cell.make_pymunk_cell(
                 vertices=self.calculate_vertex_list(),
                 mass=self.mass,
                 angle=self.angle,
-                position=(x_mother, y_mother),
+                position=[x_mother, y_mother],
                 friction=self.friction,
             )
 
@@ -166,7 +166,7 @@ class Cell:
                 "length": daughter_length,
                 "width": np.random.normal(self.width_mean,self.width_var),
                 "resolution": self.resolution,
-                "position": (x_daughter, y_daughter),
+                "position": [x_daughter, y_daughter],
                 "angle": self.angle*np.random.uniform(0.95,1.05),
                 "space": self.space,
                 "max_length": np.random.normal(self.max_length_mean,self.max_length_var),
@@ -186,13 +186,14 @@ class Cell:
             } 
             return daughter_details
         else:
-            return Cell.make_pymunk_cell(
+            self.body, self.shape =  Cell.make_pymunk_cell(
                 vertices=self.calculate_vertex_list(),
                 mass=self.mass,
                 angle=self.angle,
                 position=self.position,
                 friction=self.friction,
             )
+            return self.body, self.shape
         
     @staticmethod
     def make_pymunk_cell(
@@ -200,7 +201,7 @@ class Cell:
             mass: float,
             angle: Union[float, None]=None,
             position: Union[Tuple[float, float], None]=None,
-            friction: float=0,
+            friction: float=0.0,
         ) -> Tuple[pymunk.Body, pymunk.Shape]:
 
         shape = pymunk.Poly(None, vertices)
