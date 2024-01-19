@@ -1,6 +1,21 @@
+from typing import Callable, Dict, List, Tuple, Union
+
 import numpy as np
 import pymunk
 from SyMBac import cell_geometry
+
+
+def create_growth_rate_callable(
+        dt: float=0.01,
+        growth_rate_constant: float=1,
+        min_uniform: float=0.5,
+        max_uniform: float=1.3, 
+    ) -> Callable[[], float]:
+    def get_random_growth_rate() -> float:
+        return growth_rate_constant*dt*np.random.uniform(min_uniform, max_uniform)
+    return get_random_growth_rate
+
+
 class Cell:
     """
     Cells are the agents in the simulation. This class allows for instantiating `Cell` object.
@@ -12,23 +27,26 @@ class Cell:
     """
     def __init__(
         self,
-        length,
-        width,
-        resolution,
-        position,
-        angle,
-        space,
-        dt,
-        growth_rate_constant,
-        max_length,
-        max_length_mean,
-        max_length_var,
-        width_var,
-        width_mean,
-        parent = None,
-        daughter = None,
-        lysis_p = 0,
-        pinching_sep = 0
+        length: float,
+        width: float,
+        resolution: int,
+        position: Tuple[float, float],
+        angle: float,
+        space: pymunk.Space,
+        max_length: float,
+        max_length_mean: float,
+        max_length_var: float,
+        width_var: float,
+        width_mean: float,
+        mass: float = 0.000001,
+        friction: float = 0,
+        ID: Union[int, None] = None,
+        parent:  Union[int, None] = None,
+        daughter:  Union[int, None] = None,
+        lysis_p: float = 0,
+        pinching_sep: float = 0,
+        get_random_growth_rate: Callable[[], float] = create_growth_rate_callable(),
+        mother_above_daughter: bool = True,
     ):
         
         """
@@ -72,29 +90,38 @@ class Cell:
             A unique identifier for each cell. At the moment just a number from 0 to 100_000_000 and cross fingers that we get no collisions. 
             
         """
-        self.dt = dt
-        self.growth_rate_constant = growth_rate_constant
-        self.length = length
-        self.width_mean = width_mean
-        self.width_var = width_var
-        self.width = width
-        self.resolution = resolution
-        self.angle = angle
-        self.position = position
-        self.space = space
-        self.max_length = max_length
-        self.max_length_mean = max_length_mean
-        self.max_length_var = max_length_var
-        self.body, self.shape = self.create_pm_cell()
-        self.angle = self.body.angle
-        self.ID = np.random.randint(0,100_000_000)
-        self.lysis_p = lysis_p
-        self.parent = parent
-        self.daughter = daughter
-        self.pinching_sep = pinching_sep
+        self.length: float = length
+        self.width: float = width
+        self.resolution: int = resolution
+        self.position: Tuple[float, float] = position
+        self.angle: float = angle
+        self.space: pymunk.Space = space
+        self.max_length: float = max_length
+        self.max_length_mean: float = max_length_mean
+        self.max_length_var: float = max_length_var
+        self.width_var: float = width_var
+        self.width_mean: float = width_mean
+        self.mass: float = mass
+        self.friction: float = friction
+        pymunk_body_shape = Cell.make_pymunk_cell(
+                vertices=self.calculate_vertex_list(),
+                mass=self.mass,
+                angle=self.angle,
+                position=self.position,
+                friction=self.friction,
+        )
+        self.body: pymunk.Body = pymunk_body_shape[0]
+        self.shape: pymunk.Shape = pymunk_body_shape[1]
+        self.ID: int = np.random.randint(0,100_000_000) if ID is None else ID
+        self.lysis_p: float = lysis_p
+        self.parent: int = parent
+        self.daughter: int = daughter
+        self.pinching_sep: float = pinching_sep
+        self.get_random_growth_rate: Callable[[], float] = get_random_growth_rate
+        self.division_sign: int = 1 if mother_above_daughter else -1
         
 
-    def create_pm_cell(self):
+    def create_pm_cell(self) -> Union[Tuple[pymunk.Body, pymunk.Shape], Dict[str, Union[int, float, Tuple, Callable, None]]]:
         """
         Creates a pymunk (pm) cell object, and places it into the pymunk space given when initialising the cell. If the
         cell is dividing, then two cells will be created. Typically this function is called for every cell, in every
@@ -118,62 +145,76 @@ class Cell:
         """
 
         if self.is_dividing():
-            self.length = self.length/2 * 0.98 # It just has to be done in this order due to when we call self.body.position = [new_x, new_y]
-            daughter_length = self.length
+            length_old = self.length
+            self.length = length_old / 2 * 0.98 # Why the 0.98?
+            daughter_length = length_old / 2 * 0.98
             self.pinching_sep = 0
-            
-            cell_vertices = self.calculate_vertex_list()
-            cell_shape = pymunk.Poly(None, cell_vertices)
-            self.shape = cell_shape
-            cell_mass = 0.000001
-            cell_moment = pymunk.moment_for_poly(cell_mass, cell_shape.get_vertices())
-            cell_body = pymunk.Body(cell_mass,cell_moment)
-            cell_shape.body = cell_body
-            self.body = cell_body
-            new_x = self.position[0] + self.length/2 *  np.cos(self.angle)
-            new_y = self.position[1] + self.length/2 *  np.sin(self.angle)
-            self.body.position = [new_x, new_y]
-            cell_body.angle = self.angle
-            cell_shape.friction=0
-            #self.space.add(cell_body, cell_shape)
+            x_mother = self.position[0] - self.division_sign * self.length/2 *  np.cos(self.angle)
+            y_mother = self.position[1] + self.division_sign * self.length/2 *  np.sin(self.angle)
+            x_daughter = self.position[0] + self.division_sign * daughter_length/2 *  np.cos(self.angle)
+            y_daughter = self.position[1] - self.division_sign * daughter_length/2 *  np.sin(self.angle)
+
+            self.body, self.shape = Cell.make_pymunk_cell(
+                vertices=self.calculate_vertex_list(),
+                mass=self.mass,
+                angle=self.angle,
+                position=(x_mother, y_mother),
+                friction=self.friction,
+            )
+
             daughter_details = {
                 "length": daughter_length,
                 "width": np.random.normal(self.width_mean,self.width_var),
                 "resolution": self.resolution,
-                "position": [self.position[0] - self.length/2 *  np.cos(self.angle), self.position[1] - self.length/2 *  np.sin(self.angle)],
+                "position": (x_daughter, y_daughter),
                 "angle": self.angle*np.random.uniform(0.95,1.05),
                 "space": self.space,
-                "dt": self.dt,
-                "growth_rate_constant": self.growth_rate_constant,
                 "max_length": np.random.normal(self.max_length_mean,self.max_length_var),
                 "max_length_mean": self.max_length_mean,
                 "max_length_var": self.max_length_var,
                 "width_var": self.width_var,
                 "width_mean": self.width_mean,
-                "lysis_p": self.lysis_p,
+                "mass": self.mass,
+                "friction": self.friction,
+                "ID": None,
                 "parent": self.parent,
-                "pinching_sep": 0
-            }
-
-            
-            #self.position = [new_x, new_y]
+                "daughter": None,
+                "lysis_p": self.lysis_p,
+                "pinching_sep": 0,
+                "get_random_growth_rate": self.get_random_growth_rate,
+                "mother_above_daughter": True if self.division_sign > 0 else False,
+            } 
             return daughter_details
         else:
-            cell_vertices = self.calculate_vertex_list()
-            cell_shape = pymunk.Poly(None, cell_vertices)
-            self.shape = cell_shape
-            cell_mass = 0.000001
-            cell_moment = pymunk.moment_for_poly(cell_mass, cell_shape.get_vertices())
-            cell_body = pymunk.Body(cell_mass,cell_moment)
-            cell_shape.body = cell_body
-            self.body = cell_body
-            cell_body.position = self.position
-            cell_body.angle = self.angle
-            cell_shape.friction=0
-            #self.space.add(cell_body, cell_shape)
-            return cell_body, cell_shape
+            return Cell.make_pymunk_cell(
+                vertices=self.calculate_vertex_list(),
+                mass=self.mass,
+                angle=self.angle,
+                position=self.position,
+                friction=self.friction,
+            )
+        
+    @staticmethod
+    def make_pymunk_cell(
+            vertices: List[Tuple[float, float]],
+            mass: float,
+            angle: Union[float, None]=None,
+            position: Union[Tuple[float, float], None]=None,
+            friction: float=0,
+        ) -> Tuple[pymunk.Body, pymunk.Shape]:
 
-    def is_dividing(self): # This needs to be made constant or a cell can divide in one frame and not another frame
+        shape = pymunk.Poly(None, vertices)
+        shape.friction = friction
+        moment = pymunk.moment_for_poly(mass, shape.get_vertices())  # TODO what is the difference between shape.get_vertices and our vertices?
+        body = pymunk.Body(mass, moment)
+        body.position = body.position if position is None else position
+        body.angle = body.angle if angle is None else angle
+        shape.body = body
+        
+        return body, shape
+
+
+    def is_dividing(self) -> bool: # This needs to be made constant or a cell can divide in one frame and not another frame
         """
         Checks whether a cell is dividing by comparing its current length to its max length (defined when instnatiated).
 
@@ -182,10 +223,7 @@ class Cell:
         output : bool
             `True` if ``self.length > self.max_length``, else `False`.
         """
-        if self.length > (self.max_length):
-            return True
-        else:
-            return False
+        return self.length > self.max_length
 
 
     def update_length(self):
@@ -199,8 +237,7 @@ class Cell:
         -------
         None
         """
-
-        self.length = self.length + self.growth_rate_constant*self.dt*self.length*np.random.uniform(0.5,1.3)
+        self.length = self.length * (1 + self.get_random_growth_rate())  # TODO simplify this using one constant callable
         self.pinching_sep = max(0, self.length - self.max_length + self.width)
         self.pinching_sep = min(self.pinching_sep, self.width - 2)
 
@@ -216,7 +253,7 @@ class Cell:
         self.position = self.body.position
         self.angle = self.body.angle
 
-    def update_parent(self, parent):
+    def update_parent(self, parent: int):
         """
         Parameters
         ----------
@@ -229,7 +266,7 @@ class Cell:
         """
         self.parent = parent
 
-    def get_angle(self):
+    def get_angle(self) -> float:
         """
         Gets the angle of the cell's pymunk body.
 
@@ -240,15 +277,15 @@ class Cell:
         """
         return self.body.angle
     
-    def calculate_vertex_list(self):
+    def calculate_vertex_list(self) -> List[List[float]]:
         return cell_geometry.get_vertices(
-            self.length,
-            self.width,
-            0,#self.angle, 
-            self.resolution
+            cell_length=self.length,
+            cell_width=self.width,
+            angle=0,#self.angle, 
+            resolution=self.resolution,
             )
 
-    def get_vertex_list(self):
+    def get_vertex_list(self) -> List[List[float]]:
         """
         Calculates the vertex list (a set of x,y coordinates) which parameterise the outline of the cell
 
@@ -264,7 +301,7 @@ class Cell:
             vertices.append((x,y))
         return vertices
 
-    def get_centroid(self):
+    def get_centroid(self) -> Tuple[float, float]:
         """
         Calculates the centroid of the cell from the vertices.
 
