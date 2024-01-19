@@ -1,6 +1,10 @@
+from typing import Tuple, Optional
+
 import numpy as np
 import pymunk
+
 from SyMBac import cell_geometry
+
 class Cell:
     """
     Cells are the agents in the simulation. This class allows for instantiating `Cell` object.
@@ -12,23 +16,26 @@ class Cell:
     """
     def __init__(
         self,
-        length,
-        width,
-        resolution,
-        position,
-        angle,
-        space,
-        dt,
-        growth_rate_constant,
-        max_length,
-        max_length_mean,
-        max_length_var,
-        width_var,
-        width_mean,
+        length: float,
+        width: float,
+        resolution:int,
+        position: Tuple[float, float],
+        angle: float,
+        space: pymunk.space.Space,
+        dt: float,
+        growth_rate_constant: float,
+        max_length: float,
+        max_length_mean: float,
+        max_length_var: float,
+        width_var: float,
+        width_mean: float,
         parent = None,
         daughter = None,
         lysis_p = 0,
-        pinching_sep = 0
+        pinching_sep = 0,
+        ID: Optional[int] = None,
+        is_mother_cell: Optional[bool] = False,
+        min_max_rand_growth_rate: Optional[Tuple[float, float]] = (0.5, 1.3),
     ):
         
         """
@@ -87,14 +94,16 @@ class Cell:
         self.max_length_var = max_length_var
         self.body, self.shape = self.create_pm_cell()
         self.angle = self.body.angle
-        self.ID = np.random.randint(0,100_000_000)
+        self.ID = ID if ID else np.random.randint(0,100_000_000)
+        self.is_mother_cell = is_mother_cell
         self.lysis_p = lysis_p
         self.parent = parent
         self.daughter = daughter
         self.pinching_sep = pinching_sep
+        self.min_max_rand_growth_rate = min_max_rand_growth_rate
         
 
-    def create_pm_cell(self):
+    def create_pm_cell(self):  # TODO This must be split into two functions as it does two different things depending on self.is_dividing()
         """
         Creates a pymunk (pm) cell object, and places it into the pymunk space given when initialising the cell. If the
         cell is dividing, then two cells will be created. Typically this function is called for every cell, in every
@@ -118,30 +127,53 @@ class Cell:
         """
 
         if self.is_dividing():
-            new_length = self.length/2  - self.width/4
-            daughter_length = self.length - new_length  - self.width/4
-            self.length = new_length
+            # new_length = self.length/2  - self.width/4 
+            # daughter_length = self.length - new_length  - self.width/4
+            # NEW adjusted lengths
+            len_ratio = 0.5
+            len_prev = self.length# length of straight part
+            len_mother = len_ratio*(self.length - self.width)
+            len_daughter = (1-len_ratio)*(self.length - self.width)
+            self.length = len_mother
             self.pinching_sep = 0
-            cell_vertices = self.calculate_vertex_list()
+
+            daughter_angle = self.angle*np.random.uniform(0.95,1.05)
+            daughter_angle = self.angle
+            cell_vertices = self.calculate_vertex_list()  # BUG should this not be done after assigning new length?
             cell_shape = pymunk.Poly(None, cell_vertices)
             self.shape = cell_shape
             cell_moment = 100001
             cell_mass = 1
             cell_body = pymunk.Body(cell_mass,cell_moment)
-            cell_shape.body = cell_body
+            cell_shape.body = cell_body # BUG should that not be updated after updating position?
             self.body = cell_body
-            new_x = self.position[0] + (self.length + self.width/2)/2 * np.cos(self.angle*2)
-            new_y = self.position[1] + (self.length+ self.width/2)/2 * np.sin(self.angle*2)
-            self.body.position = [new_x, new_y]
+            if False:
+                new_x = self.position[0] + (self.length + self.width/2)/2 * np.cos(self.angle*2)
+                new_y = self.position[1] + (self.length+ self.width/2)/2 * np.sin(self.angle*2)
+                daughter_x = self.position[0] - (self.length+ self.width/2)/2 * np.cos(self.angle*2)
+                daughter_y = self.position[1] - (self.length+ self.width/2)/2 * np.sin(self.angle*2)
+            else: # NEW Keep mother cell at bottom position
+                assert len_daughter == len_mother
+                # Below formula assume that the cell is a tube in Y direction and the argument of the sinusoidals to be the angle between the Y-axis and the tube. 
+                # However, the cells are drawn horizontally, then rotated by ~90 deg. Therefore, substract 90 degrees from the angle.
+                # Note, the angle seems to start from pi/4 measured from the X axis
+                dl_mother = 0.5*(len_prev-len_mother)
+                dl_daughter = 0.5*(len_prev-len_daughter)
+                x_mother = self.position[0] + dl_mother*np.sin(self.angle*2-np.pi/2)
+                y_mother = self.position[1] - dl_mother*np.cos(self.angle*2-np.pi/2)
+                x_daughter = self.position[0] - dl_daughter*np.sin(daughter_angle*2-np.pi/2) #  - np.pi/4
+                y_daughter = self.position[1] + dl_daughter*np.cos(daughter_angle*2-np.pi/2)
+            
+            self.body.position = [x_mother, y_mother]
             cell_body.angle = self.angle
             cell_shape.friction=0
             self.space.add(cell_body, cell_shape)
             daughter_details = {
-                "length": daughter_length,
+                "length": len_daughter,
                 "width": np.random.normal(self.width_mean, self.width_var),
                 "resolution": self.resolution,
-                "position": [self.position[0] - (self.length+ self.width/2)/2 * np.cos(self.angle*2), self.position[1] - (self.length+ self.width/2)/2 * np.sin(self.angle*2)],
-                "angle": self.angle*np.random.uniform(0.95,1.05),
+                "position": [x_daughter, y_daughter],
+                "angle": daughter_angle,
                 "space": self.space,
                 "dt": self.dt,
                 "growth_rate_constant": self.growth_rate_constant,
@@ -179,7 +211,7 @@ class Cell:
         output : bool
             `True` if ``self.length > self.max_length``, else `False`.
         """
-        if self.length > (self.max_length):
+        if self.length > self.max_length:
             return True
         else:
             return False
@@ -196,10 +228,13 @@ class Cell:
         -------
         None
         """
-
-        self.length = self.length + self.growth_rate_constant*self.dt*self.length*np.random.uniform(0.5,1.3)
+        rand_factor = np.random.uniform(self.min_max_rand_growth_rate[0], self.min_max_rand_growth_rate[1])
+        self.length = self.length + self.growth_rate_constant * self.dt * self.length * rand_factor
         self.pinching_sep = max(0, self.length - self.max_length + self.width)
         self.pinching_sep = min(self.pinching_sep, self.width - 2)
+
+    def get_max_length_diff(self) -> float:
+        return self.growth_rate_constant * self.dt * self.length * self.min_max_rand_growth_rate[1]
 
     def update_position(self):
         """
@@ -260,6 +295,23 @@ class Cell:
             x,y = v.rotated(self.shape.body.angle) + self.shape.body.position #.rotated(self.shape.body.angle)
             vertices.append((x,y))
         return vertices
+    
+    def get_min_max_x_y(self) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+        """
+        Returns the min and max coordinates of vertices as ((xmin, ymin), (xmax, ymax))
+
+        Returns
+        -------
+        min_max_x_y : Tuple[Tuple[float, float], Tuple[float, float]]
+            The min and max coordinates of vertices as ((xmin, ymin), (xmax, ymax)).
+        """
+        vertices = self.get_vertex_list()
+        x_coords, y_coords = zip(*[(v[0], v[1]) for v in vertices])
+        return ((np.min(x_coords), np.min(y_coords)), (np.max(x_coords), np.max(y_coords)))
+    
+    def get_total_length(self) -> float:
+        return self.length + self.width
+
 
     def get_centroid(self):
         """

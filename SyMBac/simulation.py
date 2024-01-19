@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 from joblib import Parallel, delayed
 
@@ -88,7 +90,7 @@ class Simulation:
         self.save_dir = save_dir
         self.offset = 30
 
-    def run_simulation(self, show_window = True):
+    def run_simulation(self, show_window = True, init_id: Optional[int] = None):
         """
         Run the simulation
 
@@ -108,7 +110,8 @@ class Simulation:
             width_var=self.width_var,
             lysis_p=self.lysis_p,  # this should somehow depends on the time
             save_dir=self.save_dir,
-            show_window = show_window
+            show_window = show_window,
+            init_id=init_id,
         )  # growth phase
 
     def draw_simulation_OPL(self, do_transformation = True, label_masks = True, return_output = False):
