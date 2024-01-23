@@ -1,8 +1,9 @@
 import pickle
 from copy import deepcopy
+from typing import Callable, List, Tuple, Union
 import numpy as np
 from scipy.stats import norm
-from SyMBac.cell import Cell
+from SyMBac.cell import Cell, Cell2
 from SyMBac.trench_geometry import trench_creator, get_trench_segments
 from pymunk.pyglet_util import DrawOptions
 import pymunk
@@ -160,7 +161,7 @@ def create_space():
 
 
 
-def update_pm_cells(cells, space):
+def update_pm_cells(cells: List[Cell], space: pymunk.Space):
     """
     Iterates through all cells in the simulation and updates their pymunk body and shape objects. Contains logic to
     check for cell division, and create daughters if necessary.
@@ -259,7 +260,6 @@ def step_and_update(dt, cells, space, phys_iters, ylim, cell_timeseries,x,sim_le
         space.step(dt)
     update_cell_positions(cells)
 
-    #print(str(len(cells))+" cells")
     if x[0] > 1:
         #copy_cells = deepcopy(cells)
 
@@ -277,3 +277,59 @@ def step_and_update(dt, cells, space, phys_iters, ylim, cell_timeseries,x,sim_le
     x[0] += 1
     return (cells)
 
+
+def step_and_update2(
+        dt: float, 
+        cells: List[Cell2], 
+        next_id: List[int],
+        space: pymunk.Space, 
+        phys_iters: int, 
+        ylim: float, 
+        cell_timeseries: List[List[Cell2]],
+        sim_progress: List[int],
+        sim_length: int,
+        save_dir: str
+    ) -> Tuple[List[Cell2]]:
+
+    for shape in space.shapes:
+        if shape.body.position.y < 0 or shape.body.position.y > ylim:
+            space.remove(shape.body, shape)
+            space.step(dt)
+
+    for cell in cells:
+        if cell.shape.body.position.y < 0 or cell.shape.body.position.y > ylim:
+            cells.remove(cell)
+            space.step(dt)
+        elif norm.rvs() <= norm.ppf(cell.lysis_p) and len(cells) > 1:   # in case all cells disappear
+            cells.remove(cell)
+            space.step(dt)
+        else:
+            pass
+
+    # wipe_space(space)
+
+    for i in range(len(cells)):
+        cell = cells[i]
+        cell.grow()
+        if cell.is_dividing():
+            daughter = cell.divide(daughter_id=next_id[0])
+            next_id[0] += 1
+            cells.append(daughter)
+            space.add(daughter.body, daughter.shape)
+
+    for _ in range(phys_iters):
+        space.step(dt)
+
+    if sim_progress[0] > 1:
+        cell_timeseries.append(deepcopy(cells))
+        copy_cells = cell_timeseries[-1]
+        #del copy_cells
+    if sim_progress[0] == sim_length-1:
+        with open(save_dir+"/cell_timeseries.p", "wb") as f:
+            pickle.dump(cell_timeseries, f)
+        with open(save_dir+"/space_timeseries.p", "wb") as f:
+            pickle.dump(space, f)
+        pyglet.app.exit()
+        return cells
+    sim_progress[0] += 1
+    return (cells)

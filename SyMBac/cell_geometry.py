@@ -1,7 +1,160 @@
+from enum import Enum, auto
 from typing import List, Tuple, Union
 
 import numpy as np
 
+
+class GrowthDirection(Enum):
+    LEFT = auto()
+    RIGHT = auto()
+    BOTH = auto()
+
+
+class CellGeometry:
+    def __init__(
+        self,
+        length: float,
+        width: float,
+        half_circ_resolution: int = 10,
+    ):
+        assert length >= width
+        self._len: float = length
+        self._wid: float = width
+        self._len_walls: float = length - width
+        self._centroid: np.array = np.array([0.0, 0.0])
+
+        self._left_circ: np.array = CellGeometry.make_circ(
+            angle_start=np.pi,
+            angle_end=np.pi*2,
+            radius=self._wid/2,
+            resolution=half_circ_resolution,
+            x_shift=-self._len_walls/2, 
+            y_shift=0.0,
+            remove_start_end=False,
+        )
+        self._n_left_circ: int = self._left_circ.shape[0]
+
+        self._right_circ: np.array = CellGeometry.make_circ(
+            angle_start=0,
+            angle_end=np.pi,
+            radius=self._wid/2,
+            resolution=half_circ_resolution,
+            x_shift=self._len_walls/2, 
+            y_shift=0.0,
+            remove_start_end=False,
+        )
+        self._n_right_circ: int = self._right_circ.shape[0]
+
+        self._n_vertices = self._n_left_circ + self._n_right_circ
+
+        # self._top_wall: np.array = CellGeometry.make_horizontal_wall(
+        #     x_start=-self._len_walls/2, 
+        #     x_end=self._len_walls/2, 
+        #     y_shift=self._wid/2, 
+        #     resolution=2,
+        #     remove_start_end=False,
+        # )
+        # self._n_top_wall: int = self._top_wall.shape[0]
+
+        # self._bottom_wall: np.array = CellGeometry.make_horizontal_wall(
+        #     x_start=-self._len_walls/2, 
+        #     x_end=self._len_walls/2, 
+        #     y_shift=self._wid/2, 
+        #     resolution=2,
+        #     remove_start_end=False,
+        # )
+        # self._n_bottom_wall: int = self._bottom_wall.shape[0]
+
+        # self._n_vertices = self._n_left_circ + self._n_right_circ + self._n_top_wall + self._n_bottom_wall
+
+
+    def _extend_right(self, length_diff: float):
+        self._right_circ[:,0] += length_diff
+        # self._top_wall[1,0] += length_diff
+        # self._bottom_wall[1,0] += length_diff
+
+
+    def _extend_left(self, length_diff: float):
+        self._left_circ[:,0] -= length_diff
+        # self._top_wall[0,0] -= length_diff
+        # self._bottom_wall[0,0] -= length_diff
+
+
+    def update_length(self, new_length: float, growth_direction: GrowthDirection=GrowthDirection.BOTH):
+        assert new_length >= self._wid
+        length_diff = new_length - self._len
+        if growth_direction == GrowthDirection.RIGHT:
+            self._extend_right(length_diff)
+            self._centroid[0] += self._n_right_circ / self._n_vertices * length_diff
+        elif growth_direction == GrowthDirection.LEFT:
+            self._extend_left(length_diff)
+            self._centroid[0] += self._n_left_circ / self._n_vertices * length_diff
+        elif growth_direction == GrowthDirection.BOTH:
+            self._extend_right(length_diff/2)
+            self._extend_left(length_diff/2)
+
+
+    def get_vertices(self, angle: Union[float, None]=None) -> np.array:
+        # vertices = np.concatenate((np.flip(self._left_circ, axis=0), self._bottom_wall, np.flip(self._right_circ, axis=0), np.flip(self._top_wall, axis=0)))
+        # if angle is None:
+        #     return vertices
+        # else:
+        #     rotation_matrix_T =  np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
+        #     return np.dot(vertices - self._centroid, rotation_matrix_T) + self._centroid
+        vertices = np.concatenate((np.flip(self._left_circ, axis=0), np.flip(self._right_circ, axis=0)))
+        if angle is None:
+            return vertices
+        else:
+            rotation_matrix_T =  np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
+            return np.dot(vertices - self._centroid, rotation_matrix_T) + self._centroid
+
+
+    def get_centroid(self, angle: Union[float, None]) -> np.array:
+        if angle is None:
+            return self._centroid
+        else:
+            rotation_matrix_T =  np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
+            return np.dot(self._centroid, rotation_matrix_T)
+        
+    def get_length(self) -> float:
+        return self._len
+    
+    def get_width(self) -> float:
+        return self._wid
+
+
+    @staticmethod
+    def make_circ(
+        angle_start: float, 
+        angle_end: float, 
+        radius: float,
+        resolution: int = 6,
+        x_shift: float = 0.0, 
+        y_shift: float = 0.0, 
+        remove_start_end: bool=False,
+    ) -> np.array:
+        angles = np.linspace(angle_start, angle_end, resolution)
+        vertices = np.column_stack(((radius * np.sin(angles) + x_shift, radius * np.cos(angles) + y_shift)))
+        if remove_start_end and len(angles) > 2:
+            return vertices[1:-1, :]
+        else:
+            return vertices
+    
+
+    @staticmethod
+    def make_horizontal_wall(
+        x_start: float, 
+        x_end: float, 
+        y_shift: float,
+        resolution: int,
+        remove_start_end: bool=False,
+    ) -> Tuple[np.array, np.array]:
+        vertices = np.column_stack((np.linspace(x_start, x_end, resolution), np.ones(resolution)*y_shift))
+        if remove_start_end and resolution > 2:
+            return vertices[1:-1, :]
+        else:
+            return vertices
+    
 
 def circ(
         angle: Union[np.array, List[float]], 
