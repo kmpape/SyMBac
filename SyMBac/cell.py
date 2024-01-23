@@ -144,17 +144,17 @@ class Cell2:
 
     def divide(self, daughter_id: int) -> 'Cell2':
         width_daughter = self.get_width_daughter(self.get_width())
-        max_length_daughter = self.get_max_length_daughter()
+        max_length_daughter = self.get_max_length_daughter(self.max_length)
 
         length_old = self.get_length()
         length_mother = (length_old-self.get_width()) * (1-self.division_ratio) + self.get_width()
         length_daughter = max((length_old-self.get_width()) * self.division_ratio + self.get_width(), width_daughter) # Otherwise, CellGeometry assertion will fail
 
         position_old = self.body.position
-        position_mother = (position_old[0] + self.division_sign * length_mother *  np.cos(self.get_angle()),
-                           position_old[1] + self.division_sign * length_mother *  np.sin(self.get_angle()))
-        position_daugher = (position_old[0] - self.division_sign * length_daughter *  np.cos(self.get_angle()),
-                            position_old[1] - self.division_sign * length_daughter *  np.sin(self.get_angle()))
+        position_mother = (position_old[0] + self.division_sign * length_mother/2 *  np.cos(self.get_angle()),
+                           position_old[1] + self.division_sign * length_mother/2 *  np.sin(self.get_angle()))
+        position_daugher = (position_old[0] - self.division_sign * length_daughter/2 *  np.cos(self.get_angle()),
+                            position_old[1] - self.division_sign * length_daughter/2 *  np.sin(self.get_angle()))
 
         self.grow(new_length=length_mother, new_pinching_sep=0.0)
         self.translate(new_position=position_mother)

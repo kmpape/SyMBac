@@ -316,6 +316,8 @@ def step_and_update2(
             next_id[0] += 1
             cells.append(daughter)
             space.add(daughter.body, daughter.shape)
+        for _ in range(150):
+            space.step(1/100)
 
     for _ in range(phys_iters):
         space.step(dt)

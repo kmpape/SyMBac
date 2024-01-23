@@ -47,37 +47,12 @@ class CellGeometry:
 
         self._n_vertices = self._n_left_circ + self._n_right_circ
 
-        # self._top_wall: np.array = CellGeometry.make_horizontal_wall(
-        #     x_start=-self._len_walls/2, 
-        #     x_end=self._len_walls/2, 
-        #     y_shift=self._wid/2, 
-        #     resolution=2,
-        #     remove_start_end=False,
-        # )
-        # self._n_top_wall: int = self._top_wall.shape[0]
-
-        # self._bottom_wall: np.array = CellGeometry.make_horizontal_wall(
-        #     x_start=-self._len_walls/2, 
-        #     x_end=self._len_walls/2, 
-        #     y_shift=self._wid/2, 
-        #     resolution=2,
-        #     remove_start_end=False,
-        # )
-        # self._n_bottom_wall: int = self._bottom_wall.shape[0]
-
-        # self._n_vertices = self._n_left_circ + self._n_right_circ + self._n_top_wall + self._n_bottom_wall
-
-
     def _extend_right(self, length_diff: float):
         self._right_circ[:,0] += length_diff
-        # self._top_wall[1,0] += length_diff
-        # self._bottom_wall[1,0] += length_diff
 
 
     def _extend_left(self, length_diff: float):
         self._left_circ[:,0] -= length_diff
-        # self._top_wall[0,0] -= length_diff
-        # self._bottom_wall[0,0] -= length_diff
 
 
     def update_length(self, new_length: float, growth_direction: GrowthDirection=GrowthDirection.BOTH):
@@ -92,15 +67,10 @@ class CellGeometry:
         elif growth_direction == GrowthDirection.BOTH:
             self._extend_right(length_diff/2)
             self._extend_left(length_diff/2)
+        self._len = new_length
 
 
     def get_vertices(self, angle: Union[float, None]=None) -> np.array:
-        # vertices = np.concatenate((np.flip(self._left_circ, axis=0), self._bottom_wall, np.flip(self._right_circ, axis=0), np.flip(self._top_wall, axis=0)))
-        # if angle is None:
-        #     return vertices
-        # else:
-        #     rotation_matrix_T =  np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
-        #     return np.dot(vertices - self._centroid, rotation_matrix_T) + self._centroid
         vertices = np.concatenate((np.flip(self._left_circ, axis=0), np.flip(self._right_circ, axis=0)))
         if angle is None:
             return vertices
