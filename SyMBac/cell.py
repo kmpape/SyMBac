@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pymunk
@@ -24,77 +24,32 @@ def create_max_length_callable(
     return get_random_max_length
 
 def create_width_callable(
+        max_width: float,
         min_uniform: float=0.9,
         max_uniform: float=1.1,  
     ) -> Callable[[float], float]:
     def get_random_width(width: float) -> float:
-        return width * np.random.uniform(min_uniform, max_uniform)
+        return min(width * np.random.uniform(min_uniform, max_uniform), max_width)
     return get_random_width
 
 
-# class CellFactory:  # TODO integrate factory
-#     def __init__(
-#         self,
-#         max_length: float,
-#         width: float,
-#         start_id: int=0,
-#         mass: float = 0.000001,
-#         friction: float = 0,
-#         lysis_p: float = 0,
-#         get_width_daughter: Callable[[float], float] = create_width_callable(),
-#         get_max_length_daughter: Callable[[float], float] = create_max_length_callable(),
-#         get_random_growth_rate: Callable[[], float] = create_growth_rate_callable(),
-#         mother_above_daughter: bool = False,
-#         division_ratio: float = 0.5,
-#     ):
-#         self.max_length: float = max_length
-#         self.width: float = width
-#         self.next_id: int = start_id
-#         self.mass: float = mass
-#         self.friction: float = friction
-#         self.lysis_p: float = lysis_p
-#         self.get_width_daughter: Callable[[float], float] = get_width_daughter
-#         self.get_max_length_daughter: Callable[[float], float] = get_max_length_daughter
-#         self.get_random_growth_rate: Callable[[], float] = get_random_growth_rate
-#         self.mother_above_daughter: bool = mother_above_daughter
-#         self.division_ratio: float = division_ratio
+class CellIDFactory:
+    def __init__(self, start_id: int=0):
+        self._counter: int = start_id
 
-#     def make_cell(
-#         self,
-#         length: float,
-#         width: Union[float, None],
-#         position: Tuple[float, float],
-#         angle: float,
-#         max_length: Union[float, None],
-#         pinching_sep: float,
-#         parent_id: Union[int, None],
-#     ) -> Cell2:
-#         width = self.get_width_daughter(self.width) if width is None else width
-#         max_length = self.get_max_length_daughter(self.max_length) if max_length is None else max_length
-        
-#         new_cell = Cell2(
-#             length=length,
-#             width=width,
-#             position=position,
-#             angle=angle,
-#             max_length=max_length,
-#             mass=self.mass,
-#             friction=self.friction,
-#             self_id=self.next_id,
-#             parent_id=parent_id,
-#             daughter_ids=[],
-#             lysis_p=self.lysis_p,
-#             pinching_sep=pinching_sep,
-#             get_width_daughter=self.get_width_daughter,
-#             get_max_length_daughter=self.get_max_length_daughter,
-#             get_random_growth_rate=self.get_random_growth_rate,
-#             mother_above_daughter=self.mother_above_daughter,
-#             division_ratio=self.division_ratio,
-#         )
+    def get_next_id(self) -> int:
+        next_id = self._counter
+        self._counter += 1
+        return next_id
 
-#         self.next_id += 1
 
-#         return new_cell
+class Cell:
+    def __init__(self, cell_factory):
+        self.cell_factory = cell_factory
+        self.cell_id = self.cell_factory.increment_counter()
+
+    def get_cell_id(self):
+        return self.cell_id
 
 
 class Cell2:
@@ -105,14 +60,15 @@ class Cell2:
         position: Tuple[float, float],
         angle: float,
         max_length: float,
-        mass: float = 0.000001,
-        friction: float = 0,
-        self_id: Union[int, None] = None,
-        parent_id:  Union[int, None] = None,
+        id_factory: CellIDFactory,
+        self_id: int,
+        get_width_daughter: Callable[[float], float],
+        parent_id:  Optional[int] = None,
         daughter_ids:  List[int] = [],
+        mass: float = 1,
+        friction: float = 0,
         lysis_p: float = 0,
         pinching_sep: float = 0,
-        get_width_daughter: Callable[[float], float] = create_width_callable(),
         get_max_length_daughter: Callable[[float], float] = create_max_length_callable(),
         get_random_growth_rate: Callable[[], float] = create_growth_rate_callable(),
         mother_above_daughter: bool = False,
@@ -130,8 +86,9 @@ class Cell2:
                 friction=self.friction,
         )
         self.body: pymunk.Body = pymunk_body_shape[0]
-        self.shape: pymunk.Shape = pymunk_body_shape[1]
-        self.self_id: int = np.random.randint(0,100_000_000) if self_id is None else self_id
+        self.shape: pymunk.Poly = pymunk_body_shape[1]
+        self.id_factory: CellIDFactory = id_factory
+        self.self_id: int = self_id
         self.parent_id: int = parent_id
         self.daughter_ids: List[int] = daughter_ids
         self.lysis_p: float = lysis_p
@@ -142,7 +99,12 @@ class Cell2:
         self.division_sign: int = 1 if mother_above_daughter else -1
         self.division_ratio: float = division_ratio
 
-    def divide(self, daughter_id: int) -> 'Cell2':
+    def apply_force(self, force_global: Tuple[float, float]):
+        force_local = pymunk.Vec2d(x=force_global[0], y=force_global[1]).rotated(-self.shape.body.angle)
+        point_local = pymunk.Vec2d(x=np.random.uniform(low=-self.get_length()/2, high=self.get_length()/2), y=0)
+        self.body.apply_force_at_local_point(force=force_local, point=point_local)
+
+    def divide(self) -> 'Cell2':
         width_daughter = self.get_width_daughter(self.get_width())
         max_length_daughter = self.get_max_length_daughter(self.max_length)
 
@@ -159,6 +121,7 @@ class Cell2:
         self.grow(new_length=length_mother, new_pinching_sep=0.0)
         self.translate(new_position=position_mother)
 
+        daughter_id = self.id_factory.get_next_id()
         self.daughter_ids.append(daughter_id)
 
         return Cell2(
@@ -167,11 +130,12 @@ class Cell2:
             position=position_daugher,
             angle=self.get_angle(),
             max_length=max_length_daughter,
-            mass=self.body.mass,
-            friction=self.shape.friction,
+            id_factory=self.id_factory,
             self_id=daughter_id,
             parent_id=self.self_id,
             daughter_ids=[],
+            mass=self.body.mass,
+            friction=self.shape.friction,
             lysis_p=self.lysis_p,
             pinching_sep=0,
             get_width_daughter=self.get_width_daughter,
@@ -181,30 +145,42 @@ class Cell2:
             division_ratio=self.division_ratio,
         )
     
-
-    def is_dividing(self) -> bool: 
-        return self.get_length() > self.max_length
-    
     def get_angle(self) -> float:
         return self.body.angle
     
     def get_centroid(self) -> np.array:
         return self.get_position() + self.geometry.get_centroid(angle=self.get_angle())
     
+    def get_length(self) -> float:
+        return self.geometry.get_length()
+    
     def get_position(self) -> Tuple[float, float]:
         return self.body.position
     
-    def get_length(self) -> float:
-        return self.geometry.get_length()
+    def get_vertex_list(self, global_coordinates: bool=True) -> List[Tuple[float, float]]:
+        if global_coordinates:
+            return [self._to_global_coordinates(vertex) for vertex in self.shape.get_vertices()]
+        else:
+            return [(vertex[0], vertex[1]) for vertex in self.shape.get_vertices()]
     
     def get_width(self) -> float:
         return self.geometry.get_width()
     
-    def grow(self, new_length: Union[None, float]=None, new_pinching_sep: Union[None, float]=None):
+    def grow(self, new_length: Optional[float]=None, new_pinching_sep: Optional[float]=None):
         new_length = self.get_length() * (1 + self.get_random_growth_rate()) if new_length is None else new_length
         self._update_vertices(new_length=new_length)
         self._update_pinching_sep(pinching_sep=new_pinching_sep)
 
+    def is_dividing(self) -> bool: 
+        return self.get_length() > self.max_length
+    
+    def is_out_of_bounds(self, x_min: float, x_max: float, y_min: float, y_max: float, use_centroid: bool=False) -> bool:
+        if use_centroid:
+            c = self.get_centroid()
+            return c[0] < x_min or c[0] > x_max or c[1] < y_min or c[1] > y_max
+        else:
+            return any([v[0] < x_min or v[0] > x_max or v[1] < y_min or v[1] > y_max for v in self.get_vertex_list()])
+    
     def translate(self, new_position: Tuple[float, float]):
         self.body.position = new_position
 
@@ -212,17 +188,25 @@ class Cell2:
         self.geometry.update_length(new_length=new_length)  # Update local vertex and centroid coordinates
         self.shape.unsafe_set_vertices(self.geometry.get_vertices().tolist())
 
-    def _update_pinching_sep(self, pinching_sep: Union[None, float]=None):
+    def _update_pinching_sep(self, pinching_sep: Optional[float]=None):
         self.pinching_sep = min(max(0, self.get_length() - self.max_length + self.get_width()), self.get_width() - 2) if pinching_sep is None else pinching_sep
 
+    @staticmethod
+    def _to_global_coordinates(vertex: pymunk.Vec2d, shape: pymunk.Poly):
+        return vertex.rotated(shape.body.angle) + shape.body.position
+
+    @staticmethod
+    def _to_local_coordinates(vertex: pymunk.Vec2d, shape: pymunk.Poly):
+        return vertex.rotated(-shape.body.angle) - shape.body.position
+    
     @staticmethod
     def make_pymunk_cell(
             vertices: List[Tuple[float, float]],
             mass: float,
-            angle: Union[float, None]=None,
-            position: Union[Tuple[float, float], None]=None,
+            angle: Optional[float]=None,
+            position: Optional[Tuple[float, float]]=None,
             friction: float=0.0,
-        ) -> Tuple[pymunk.Body, pymunk.Shape]:
+        ) -> Tuple[pymunk.Body, pymunk.Poly]:
 
         shape = pymunk.Poly(None, vertices)
         shape.friction = friction
@@ -258,9 +242,9 @@ class Cell:
         width_mean: float,
         mass: float = 0.000001,
         friction: float = 0,
-        ID: Union[int, None] = None,
-        parent:  Union[int, None] = None,
-        daughter:  Union[int, None] = None,
+        ID: Optional[int] = None,
+        parent:  Optional[int] = None,
+        daughter:  Optional[int] = None,
         lysis_p: float = 0,
         pinching_sep: float = 0,
         get_random_growth_rate: Callable[[], float] = create_growth_rate_callable(),

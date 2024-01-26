@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -24,8 +24,8 @@ class CellGeometry:
         self._centroid: np.array = np.array([0.0, 0.0])
 
         self._left_circ: np.array = CellGeometry.make_circ(
-            angle_start=np.pi,
-            angle_end=np.pi*2,
+            angle_start=np.pi/2,#np.pi,
+            angle_end=np.pi*3/2,#np.pi*2,
             radius=self._wid/2,
             resolution=half_circ_resolution,
             x_shift=-self._len_walls/2, 
@@ -35,8 +35,8 @@ class CellGeometry:
         self._n_left_circ: int = self._left_circ.shape[0]
 
         self._right_circ: np.array = CellGeometry.make_circ(
-            angle_start=0,
-            angle_end=np.pi,
+            angle_start=-np.pi/2,#0,
+            angle_end=np.pi/2,#np.pi,
             radius=self._wid/2,
             resolution=half_circ_resolution,
             x_shift=self._len_walls/2, 
@@ -70,8 +70,9 @@ class CellGeometry:
         self._len = new_length
 
 
-    def get_vertices(self, angle: Union[float, None]=None) -> np.array:
-        vertices = np.concatenate((np.flip(self._left_circ, axis=0), np.flip(self._right_circ, axis=0)))
+    def get_vertices(self, angle: Optional[float]=None) -> np.array:
+        # vertices = np.concatenate((np.flip(self._left_circ, axis=0), np.flip(self._right_circ, axis=0)))
+        vertices = np.concatenate((self._left_circ, self._right_circ))
         if angle is None:
             return vertices
         else:
@@ -79,7 +80,7 @@ class CellGeometry:
             return np.dot(vertices - self._centroid, rotation_matrix_T) + self._centroid
 
 
-    def get_centroid(self, angle: Union[float, None]) -> np.array:
+    def get_centroid(self, angle: Optional[float]=None) -> np.array:
         if angle is None:
             return self._centroid
         else:
@@ -104,7 +105,8 @@ class CellGeometry:
         remove_start_end: bool=False,
     ) -> np.array:
         angles = np.linspace(angle_start, angle_end, resolution)
-        vertices = np.column_stack(((radius * np.sin(angles) + x_shift, radius * np.cos(angles) + y_shift)))
+        # vertices = np.column_stack(((radius * np.sin(angles) + x_shift, radius * np.cos(angles) + y_shift)))
+        vertices = np.column_stack(((radius * np.cos(angles) + x_shift, radius * np.sin(angles) + y_shift)))
         if remove_start_end and len(angles) > 2:
             return vertices[1:-1, :]
         else:

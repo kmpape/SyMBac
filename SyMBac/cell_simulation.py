@@ -5,6 +5,7 @@ import numpy as np
 from scipy.stats import norm
 from SyMBac.cell import Cell, Cell2
 from SyMBac.trench_geometry import trench_creator, get_trench_segments
+from SyMBac.mothermachine_geometry import Mothermachine, MothermachinePart
 from pymunk.pyglet_util import DrawOptions
 import pymunk
 import pyglet
@@ -278,17 +279,17 @@ def step_and_update(dt, cells, space, phys_iters, ylim, cell_timeseries,x,sim_le
     return (cells)
 
 
-def step_and_update2(
+def step_and_update3(
         dt: float, 
         cells: List[Cell2], 
-        next_id: List[int],
         space: pymunk.Space, 
         phys_iters: int, 
         ylim: float, 
         cell_timeseries: List[List[Cell2]],
         sim_progress: List[int],
         sim_length: int,
-        save_dir: str
+        save_dir: str,
+        mothermachine: Mothermachine,
     ) -> Tuple[List[Cell2]]:
 
     for shape in space.shapes:
@@ -306,32 +307,31 @@ def step_and_update2(
         else:
             pass
 
-    # wipe_space(space)
-
     for i in range(len(cells)):
         cell = cells[i]
         cell.grow()
         if cell.is_dividing():
-            daughter = cell.divide(daughter_id=next_id[0])
-            next_id[0] += 1
+            daughter = cell.divide()
             cells.append(daughter)
             space.add(daughter.body, daughter.shape)
-        for _ in range(150):
-            space.step(1/100)
+        if mothermachine.where(cell=cell, use_centroid=True) == MothermachinePart.CHANNEL:
+            cell.apply_force(mothermachine.get_flow_force())
 
     for _ in range(phys_iters):
         space.step(dt)
 
-    if sim_progress[0] > 1:
-        cell_timeseries.append(deepcopy(cells))
-        copy_cells = cell_timeseries[-1]
+    cell_timeseries.append(deepcopy(cells))
+    # if sim_progress[0] > 1:
+    #     cell_timeseries.append(deepcopy(cells))
+    #     copy_cells = cell_timeseries[-1]
         #del copy_cells
     if sim_progress[0] == sim_length-1:
-        with open(save_dir+"/cell_timeseries.p", "wb") as f:
-            pickle.dump(cell_timeseries, f)
-        with open(save_dir+"/space_timeseries.p", "wb") as f:
-            pickle.dump(space, f)
-        pyglet.app.exit()
-        return cells
+         pyglet.app.exit()
+         return (cells)
+    #     with open(save_dir+"/cell_timeseries.p", "wb") as f:
+    #         pickle.dump(cell_timeseries, f)
+    #     with open(save_dir+"/space_timeseries.p", "wb") as f:
+    #         pickle.dump(space, f)
+    #     return cells
     sim_progress[0] += 1
     return (cells)
