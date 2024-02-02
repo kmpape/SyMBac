@@ -42,7 +42,7 @@ def generate_curve_props(cell_timeseries):
         amp_modif = (np.random.uniform(0.9, 1.1))  # Choose one per cell
         phase_modif = np.random.uniform(-1, 1)  # Choose one per cell
         ID_props.append([int(ID), freq_modif, amp_modif, phase_modif])
-    ID_propps = np.array(ID_props)
+    ID_propps = np.array(ID_props) # TODO careful here, new variable with double-p
     ID_propps[:, 0] = ID_propps[:, 0].astype(int)
     return np.array(ID_props)
 
@@ -500,7 +500,7 @@ def make_images_same_shape(real_image, synthetic_image, rescale_int=True):
     return real_image, synthetic_image
 
 
-def get_space_size(cell_timeseries_properties):
+def get_space_size(cell_timeseries_properties): # TODO I believe this is about getting the bounding box of the space
     """
     :param cell_timeseries_properties: A list of cell properties over time. Generated from :meth:`SyMBac.simulation.Simulation.draw_simulation_OPL`
     :return: Iterates through the simulation timeseries properties, finds the extreme cell positions and retrieves the required image size to fit all cells into.
@@ -518,7 +518,7 @@ def get_space_size(cell_timeseries_properties):
                 max_x = max_x_
             if max_y_ > max_y:
                 max_y = max_y_
-    return (int(1.2 * max_y), int(1.5 * max_x))
+    return (int(1.2 * max_y), int(1.5 * max_x)) # TODO where do these factors come from?
 
 
 def clean_up_mask(mask):

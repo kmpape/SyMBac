@@ -1,15 +1,18 @@
-import pickle
 from copy import deepcopy
+import random
 from typing import Callable, List, Tuple, Union
+
 import numpy as np
-from scipy.stats import norm
-from SyMBac.cell import Cell, Cell2
+import pyglet
+import pymunk
+from pymunk.pyglet_util import DrawOptions
+from tqdm.auto import tqdm
+
+from SyMBac.cell import Cell, CellIDFactory, create_width_callable
+from SyMBac.config import ConfigCell, ConfigMothermachine, ConfigSimulation
 from SyMBac.trench_geometry import trench_creator, get_trench_segments
 from SyMBac.mothermachine_geometry import Mothermachine, MothermachinePart
-from pymunk.pyglet_util import DrawOptions
-import pymunk
-import pyglet
-from tqdm.auto import tqdm
+
 
 def run_simulation(trench_length, trench_width, cell_max_length, cell_width, sim_length, pix_mic_conv, gravity,
                    phys_iters, max_length_var, width_var, save_dir, lysis_p=0, show_window = True, streamlit_mode = False):
@@ -160,178 +163,144 @@ def create_space():
     #space.threads = 2
     return space
 
+def run_simulation2(
+        cfg_sim: ConfigSimulation,
+        cfg_cell: ConfigCell,
+        cfg_mm: ConfigMothermachine,
+    ) -> Tuple[List[List[Cell]], pymunk.Space]:
 
+    space = pymunk.Space(threaded=False)
+    space.gravity = 0, 0.0
+    space.collision_slop = 0.0
+    dt = 1 / 20  # TODO why hard-coded?
+    scale_factor = 3 / cfg_sim.pix_mic_conv  # TODO why factor 3?
 
-def update_pm_cells(cells: List[Cell], space: pymunk.Space):
-    """
-    Iterates through all cells in the simulation and updates their pymunk body and shape objects. Contains logic to
-    check for cell division, and create daughters if necessary.
+    trench_length = cfg_mm.trench_length * scale_factor
+    trench_width = cfg_mm.trench_width * scale_factor
+    channel_width = cfg_mm.channel_width * scale_factor
+    trench_spacing = cfg_mm.trench_spacing * scale_factor
 
-    :param list(SyMBac.cell.Cell) cells: A list of all cells in the current timepoint of the simulation.
+    cell_max_length = cfg_cell.max_length * scale_factor
+    cell_max_width = cfg_cell.max_width * scale_factor
+    cell_init_width = cfg_cell.init_width * scale_factor
 
-    """
-    for cell in cells:
-        cell.update_length()
-        if cell.is_dividing():
-            daughter_details = cell.create_pm_cell()
-            if len(daughter_details) > 2: # Really hacky. Needs fixing because sometimes this returns cell_body, cell shape. So this is a check to ensure that it's returing daughter_x, y and angle
-                daughter = Cell(**daughter_details)
-                cell.daughter = daughter
-                cells.append(daughter)
+    mothermachine = Mothermachine(
+        space=space,
+        trench_width=trench_width,
+        trench_length=trench_length,
+        trench_spacing=trench_spacing,
+        num_trenches=cfg_mm.num_trenches,
+        channel_width=channel_width,
+    )
+
+    cell_id_factory = CellIDFactory()
+    cells = []
+    for i in mothermachine.get_trench_ids():
+        cell_length = cell_max_length * 0.9
+        trench_position = mothermachine.get_trench_position(trench_id=i)
+        cell_position_x = trench_position[0] + trench_width * 0.5
+        if mothermachine.is_top_trench(trench_id=i):
+            cell_position_y = trench_position[1] + trench_length - cell_length * 0.5
+            mother_above_daughter = True
         else:
-            cell.create_pm_cell()
-        cell_adder(cell, space)
-        for _ in range(150):
-            space.step(1/100)
+            cell_position_y = trench_position[1] + cell_length * 0.5
+            mother_above_daughter = False
+        cell_pos = (cell_position_x, cell_position_y)
+        cell_width = min(cell_max_width, 
+                         cell_init_width * random.uniform(cfg_cell.init_width_min_uniform,
+                                                          cfg_cell.init_width_max_uniform))
+        # TODO create all callables from config here
+        cell = Cell(
+            length=cell_length,
+            width=cell_width,
+            position=cell_pos,
+            id_factory=cell_id_factory,
+            self_id = cell_id_factory.get_next_id(),
+            angle=np.pi/2,
+            max_length=cell_max_length,
+            get_width_daughter=create_width_callable(max_width=cell_max_width),
+            mother_above_daughter=mother_above_daughter,
+        )
+        cells.append(cell)
+        cell.shape.color = (255, 0, 0, 255)
+        space.add(cell.body, cell.shape)
 
-def cell_adder(cell, space):
-    space.add(cell.body, cell.shape)
+    sim_progress = [0]
+    cell_timeseries = []
+    if cfg_sim.show_window:
+        window = pyglet.window.Window(700, 700, "SyMBac", resizable=True)
+        options = DrawOptions()
+        options.shape_outline_color = (10,20,30,40)
+        bb_mothermachine = mothermachine.get_bounding_box(which=MothermachinePart.MOTHERMACHINE)
+        scale_x = window.width / (bb_mothermachine.right - bb_mothermachine.left)
+        scale_y = window.height / (bb_mothermachine.top - bb_mothermachine.bottom)
+        scale_window = min(scale_x, scale_y)
+        window.view = window.view.scale((scale_window, scale_window, 1))
 
-def update_cell_positions(cells):
-    """
-    Iterates through all cells in the simulation and updates their positions, keeping the cell object's position
-    synchronised with its corresponding pymunk shape and body inside the pymunk space.
+        @window.event
+        def on_draw():
+            window.clear()
+            space.debug_draw(options)
+        
+        @window.event
+        def on_key_press(symbol, modifier):
+            if symbol == pyglet.window.key.E:
+                window.close()
 
-    :param list(SyMBac.cell.Cell) cells: A list of all cells in the current timepoint of the simulation.
-    """
-    for cell in cells:
-        cell.update_position()
+        pyglet.clock.schedule_interval_for_duration(step_and_update3, interval=dt, duration=cfg_sim.sim_length, cells=cells, space=space, phys_iters=cfg_sim.phys_iters,
+                                    ylim=bb_mothermachine.top, cell_timeseries=cell_timeseries, sim_progress=sim_progress, sim_length=cfg_sim.sim_length,
+                                    save_dir=cfg_sim.save_dir, mothermachine=mothermachine)
+        pyglet.app.run()
+    else:
+        for _ in tqdm(range(cfg_sim.sim_length)):
+            step_and_update3(dt=dt, cells=cells, space=space, phys_iters=cfg_sim.phys_iters,
+                ylim=bb_mothermachine.top, cell_timeseries=cell_timeseries, sim_progress=sim_progress, sim_length=cfg_sim.sim_length,
+                save_dir=cfg_sim.save_dir, mothermachine=mothermachine)
 
-def wipe_space(space):
-    """
-    Deletes all cells in the simulation pymunk space.
-
-    :param pymunk.Space space:
-    """
-    for body, poly in zip(space.bodies, space.shapes):
-        if body.body_type == 0:
-            space.remove(body)
-            space.remove(poly)
-
-def update_cell_parents(cells, new_cells):
-    """
-    Takes two lists of cells, one in the previous frame, and one in the frame after division, and updates the parents of
-    each cell
-
-    :param list(SyMBac.cell.Cell) cells:
-    :param list(SyMBac.cell.Cell) new_cells:
-    """
-    for i in range(len(cells)):
-        cells[i].update_parent(id(new_cells[i]))
-
-def step_and_update(dt, cells, space, phys_iters, ylim, cell_timeseries,x,sim_length,save_dir):
-    """
-    Evolves the simulation forward
-
-    :param float dt: The simulation timestep
-    :param list(SyMBac.cell.Cell)  cells: A list of all cells in the current timestep
-    :param pymunk.Space space: The simulations's pymunk space.
-    :param int phys_iters: The number of physics iteration in each timestep
-    :param int ylim: The y coordinate threshold beyond which to delete cells
-    :param list cell_timeseries: A list to store the cell's properties each time the simulation steps forward
-    :param int list: A list with a single value to store the simulation's progress.
-    :param int sim_length: The number of timesteps to run.
-    :param str save_dir: The directory to save the simulation information.
-
-    Returns
-    -------
-    cells : list(SyMBac.cell.Cell)
-
-    """
-    for shape in space.shapes:
-        if shape.body.position.y < 0 or shape.body.position.y > ylim:
-            space.remove(shape.body, shape)
-            space.step(dt)
-
-    for cell in cells:
-        if cell.shape.body.position.y < 0 or cell.shape.body.position.y > ylim:
-            cells.remove(cell)
-            space.step(dt)
-        elif norm.rvs() <= norm.ppf(cell.lysis_p) and len(cells) > 1:   # in case all cells disappear
-            cells.remove(cell)
-            space.step(dt)
-        else:
-            pass
-
-    wipe_space(space)
-
-    update_pm_cells(cells, space)
-
-    for _ in range(phys_iters):
-        space.step(dt)
-    update_cell_positions(cells)
-
-    if x[0] > 1:
-        #copy_cells = deepcopy(cells)
-
-        cell_timeseries.append(deepcopy(cells))
-        copy_cells = cell_timeseries[-1]
-        update_cell_parents(cells, copy_cells)
-        #del copy_cells
-    if x[0] == sim_length-1:
-        with open(save_dir+"/cell_timeseries.p", "wb") as f:
-            pickle.dump(cell_timeseries, f)
-        with open(save_dir+"/space_timeseries.p", "wb") as f:
-            pickle.dump(space, f)
-        pyglet.app.exit()
-        return cells
-    x[0] += 1
-    return (cells)
+    return cell_timeseries, space
 
 
 def step_and_update3(
         dt: float, 
-        cells: List[Cell2], 
+        cells: List[Cell], 
         space: pymunk.Space, 
         phys_iters: int, 
         ylim: float, 
-        cell_timeseries: List[List[Cell2]],
+        cell_timeseries: List[List[Cell]],
         sim_progress: List[int],
         sim_length: int,
         save_dir: str,
         mothermachine: Mothermachine,
-    ) -> Tuple[List[Cell2]]:
+    ) -> Tuple[List[Cell]]:
 
-    for shape in space.shapes:
-        if shape.body.position.y < 0 or shape.body.position.y > ylim:
-            space.remove(shape.body, shape)
-            space.step(dt)
-
-    for cell in cells:
-        if cell.shape.body.position.y < 0 or cell.shape.body.position.y > ylim:
-            cells.remove(cell)
-            space.step(dt)
-        elif norm.rvs() <= norm.ppf(cell.lysis_p) and len(cells) > 1:   # in case all cells disappear
-            cells.remove(cell)
-            space.step(dt)
-        else:
-            pass
-
+    # Update cell growth, lysis and divisions
     for i in range(len(cells)):
         cell = cells[i]
-        cell.grow()
-        if cell.is_dividing():
-            daughter = cell.divide()
-            cells.append(daughter)
-            space.add(daughter.body, daughter.shape)
-        if mothermachine.where(cell=cell, use_centroid=True) == MothermachinePart.CHANNEL:
-            cell.apply_force(mothermachine.get_flow_force())
+        if mothermachine.where(cell=cell, use_centroid=True) == MothermachinePart.UNKNOWN:
+            pass
+            # cell.body.sleep()  # TODO this yields a seg fault when embedded in a callback
+        else:
+            cell.grow()
+            if cell.is_dividing():
+                daughter = cell.divide()
+                cells.append(daughter)
+                space.add(daughter.body, daughter.shape)
+                if mothermachine.where(cell=daughter, use_centroid=True) == MothermachinePart.CHANNEL:
+                    daughter.apply_force(mothermachine.get_flow_force())
+            if mothermachine.where(cell=cell, use_centroid=True) == MothermachinePart.CHANNEL:
+                cell.apply_force(mothermachine.get_flow_force())
 
+    # Run physics solver and resolve collisions
     for _ in range(phys_iters):
         space.step(dt)
 
+    # Record timeseries properties
+    for cell in cells:
+        cell.record_timeseries_properties(timestep=sim_progress[0])
+
     cell_timeseries.append(deepcopy(cells))
-    # if sim_progress[0] > 1:
-    #     cell_timeseries.append(deepcopy(cells))
-    #     copy_cells = cell_timeseries[-1]
-        #del copy_cells
     if sim_progress[0] == sim_length-1:
-         pyglet.app.exit()
-         return (cells)
-    #     with open(save_dir+"/cell_timeseries.p", "wb") as f:
-    #         pickle.dump(cell_timeseries, f)
-    #     with open(save_dir+"/space_timeseries.p", "wb") as f:
-    #         pickle.dump(space, f)
-    #     return cells
+        pyglet.app.exit()
+        return (cells)
     sim_progress[0] += 1
     return (cells)

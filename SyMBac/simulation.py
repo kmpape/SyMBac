@@ -1,7 +1,10 @@
+import random
+
 import numpy as np
 from joblib import Parallel, delayed
 
-from SyMBac.cell_simulation import run_simulation
+from SyMBac.cell_simulation import run_simulation, run_simulation2
+from SyMBac.config import ConfigCell, ConfigMothermachine, ConfigSimulation
 from SyMBac.drawing import draw_scene, get_space_size, gen_cell_props_for_draw, generate_curve_props
 from SyMBac.trench_geometry import  get_trench_segments
 from tqdm.autonotebook import tqdm
@@ -136,6 +139,65 @@ class Simulation:
            If ``return_output = True``, a tuple containing lists, each of which contains the entire simulation. The first element in the tuple contains the OPL images, the second element contains the masks
 
         """
+        self.main_segments = get_trench_segments(self.space)
+        ID_props = generate_curve_props(self.cell_timeseries)
+
+        self.cell_timeseries_properties = Parallel(n_jobs=-1)(
+            delayed(gen_cell_props_for_draw)(a, ID_props) for a in tqdm(self.cell_timeseries, desc='Timeseries Properties'))
+
+        space_size = get_space_size(self.cell_timeseries_properties)
+
+        scenes = Parallel(n_jobs=-1)(delayed(draw_scene)(
+        cell_properties, do_transformation, space_size, self.offset, label_masks) for cell_properties in tqdm(
+            self.cell_timeseries_properties, desc='Scene Draw:'))
+        self.OPL_scenes = [_[0] for _ in scenes]
+        self.masks = [_[1] for _ in scenes]
+
+        if return_output:
+            return self.OPL_scenes, self.masks
+
+    def visualise_in_napari(self):
+        """
+        Opens a napari window allowing you to visualise the simulation, with both masks, OPL images, interactively.
+        :return:
+        """
+        viewer = napari.view_image(np.array(self.OPL_scenes), name='OPL scenes')
+        viewer.add_labels(np.array(self.masks), name='Synthetic masks')
+        napari.run()
+
+
+
+class Simulation2:
+
+    def __init__(
+            self,
+            config_simulation: ConfigSimulation,
+            config_cell: ConfigCell,
+            config_mothermachine: ConfigMothermachine,
+        ):
+        self.config_simulation: ConfigSimulation = config_simulation
+        self.config_cell: ConfigCell = config_cell
+        self.config_mothermachine: ConfigMothermachine = config_mothermachine
+
+    def run_simulation(self, show_window = True, streamlit_mode=False):
+        self.cell_timeseries, self.space = run_simulation2(
+            trench_length=self.trench_length,
+            trench_width=self.trench_width,
+            cell_max_length=self.cell_max_length,  # 6, long cells # 1.65 short cells
+            cell_width=self.cell_width,  # 1 long cells # 0.95 short cells
+            sim_length=self.sim_length,
+            pix_mic_conv=self.pix_mic_conv,
+            gravity=self.gravity,
+            phys_iters=self.phys_iters,
+            max_length_var=self.max_length_var,
+            width_var=self.width_var,
+            lysis_p=self.lysis_p,  # this should somehow depends on the time
+            save_dir=self.save_dir,
+            show_window = show_window,
+            streamlit_mode = streamlit_mode
+        )  # growth phase
+
+    def draw_simulation_OPL(self, do_transformation = True, label_masks = True, return_output = False, streamlit_mode=False):
         self.main_segments = get_trench_segments(self.space)
         ID_props = generate_curve_props(self.cell_timeseries)
 

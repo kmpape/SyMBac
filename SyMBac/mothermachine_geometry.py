@@ -6,12 +6,13 @@ import pymunk
 import numpy as np
 
 from SyMBac.cell_geometry import CellGeometry
-from SyMBac.cell import Cell2
+from SyMBac.cell import Cell
 
 
 class MothermachinePart(Enum):
     MOTHERMACHINE = auto()
-    TRENCH = auto()
+    TOP_TRENCH = auto()
+    BOTTOM_TRENCH = auto()
     CHANNEL = auto()
     UNKNOWN = auto()
 
@@ -73,7 +74,7 @@ class Mothermachine:
         return pymunk.BB(left=left, right=right, top=top, bottom=bottom)
     
     def get_flow_force(self) -> Tuple[float, float]:
-        mag = 1
+        mag = 1*0
         mean_angle = np.pi * 0.5 if self.flow_direction == ChannelFlowDirection.LEFT else 0.0
         angle = np.random.uniform(low=mean_angle-np.pi/6, high=mean_angle+np.pi/6)
         return (mag * np.cos(angle), mag * np.sin(angle))
@@ -89,14 +90,17 @@ class Mothermachine:
     def is_top_trench(self, trench_id: int) -> bool:
         return trench_id >= self.num_t
     
-    def where(self, cell: Cell2, use_centroid: bool=True) -> MothermachinePart:
+    def where(self, cell: Cell, use_centroid: bool=True) -> MothermachinePart:
         bb = self.get_bounding_box(which=MothermachinePart.MOTHERMACHINE)
-        if cell.is_out_of_bounds(x_min=bb.left, x_max=bb.right, y_min=bb.bottom, y_max=bb.top, use_centroid=use_centroid):
+        if cell.is_out_of_bounds(bb=bb, use_centroid=use_centroid):
             return MothermachinePart.UNKNOWN
         bb = self.get_bounding_box(which=MothermachinePart.CHANNEL)
-        if not cell.is_out_of_bounds(x_min=bb.left, x_max=bb.right, y_min=bb.bottom, y_max=bb.top, use_centroid=use_centroid):
+        if not cell.is_out_of_bounds(bb=bb, use_centroid=use_centroid):
             return MothermachinePart.CHANNEL
-        return MothermachinePart.TRENCH # Assuming that cells are spawned and staying in trenches or channels
+        if not cell.is_out_of_bounds(bb=(bb.left, bb.right, bb.bottom, self.t_length+self.c_width/2), use_centroid=use_centroid):
+            return MothermachinePart.BOTTOM_TRENCH
+        else:
+            return MothermachinePart.TOP_TRENCH # Assuming that cells are spawned and staying in trenches or channels
     
     def _build(self):
         _ = Mothermachine.create_and_add_segment(
