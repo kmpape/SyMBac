@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from pathlib import Path
 
+SYMBAC_DIR = Path(__file__).parent.parent
 
 @dataclass
 class ConfigCell:
@@ -77,17 +79,53 @@ class ConfigSimulation:
     "TODO change this to Path."
     resize_amount: float
     "TODO How does this differ from pix_mic_conv?"
-    offset: float
+    offset: int
     "TODO Why is this neccesary? Why only one offset for one direction?"
     streamlit_mode: bool = False
     "TODO is this needed? What are the advantages of this streamlit?"
 
 TEST_CONFIG_SIMULATION = ConfigSimulation(
     pix_mic_conv=0.065,
-    sim_length=20,
+    sim_length=50,
     show_window=True,
     num_physics_iter=10,
     save_dir="/home/tmp/",
-    resize_amount=1,
-    offset=50.0,
+    resize_amount=1.0,
+    offset=50,
+)
+
+@dataclass
+class ConfigCamera:
+    baseline: float
+    "TODO"
+    sensitivity: float
+    "TODO"
+    dark_noise: float
+    "TODO"
+
+TEST_CONFIG_CAMERA = ConfigCamera(
+    baseline=100,
+    sensitivity=2.9,
+    dark_noise=8,
+)
+
+@dataclass
+class ConfigPSF:
+    mode: str  # TODO: enum for this
+    "TODO"
+    radius: float
+    "TODO"
+    wavelength: float
+    "TODO"
+    num_ap: float
+    "TODO"
+    ref_ind: float
+    "TODO"
+
+TEST_CONFIG_PSF = ConfigPSF(
+    mode="simple fluo",
+    radius=100,
+    wavelength=0.450,
+    num_ap=0.95,
+    ref_ind=1.3,
 )

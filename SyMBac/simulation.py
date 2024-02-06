@@ -4,6 +4,7 @@ import random
 from joblib import Parallel, delayed
 import napari
 import numpy as np
+import pyglet
 import pymunk
 from tqdm.autonotebook import tqdm
 
@@ -185,56 +186,44 @@ class Simulation2:
         "Configuration object for cell geometry parameters."
         self.cfg_mm: ConfigMothermachine = config_mothermachine
         "Configuration object for mothermachine geometry parameters."
+        self.offset: int = self.cfg_sim.offset # TODO refactor code in Renderer
+        self.resize_amount: int = self.cfg_sim.resize_amount # TODO refactor code in Renderer
 
         self.mothermachine: Optional[Mothermachine] = None
         self.space: Optional[pymunk.Space] = None
         self.cells: List[Cell] = []
         self.cell_timeseries_properties: List[List[Union[float, Tuple[float, float]]]] = []
+        self.window: Optional[pyglet.window.Window] = None
 
-        self.old_version = True
+    def close_simulation(self):
+        if self.cfg_sim.show_window and self.window is not None:
+            pyglet.app.exit()
+            self.window.close()
 
     def run_simulation(self):
-        if self.old_version == False:
-            self.cells, self.space, self.motherachine = run_simulation2(
-                cfg_cell=self.cfg_cell,
-                cfg_sim=self.cfg_sim,
-                cfg_mm=self.cfg_mm,
-                old_version=self.old_version,
-            )
-        else:
-            self.cell_timeseries, self.space, self.motherachine = run_simulation2(
-                cfg_cell=self.cfg_cell,
-                cfg_sim=self.cfg_sim,
-                cfg_mm=self.cfg_mm,
-                old_version=self.old_version,
-            )
+        self.cells, self.space, self.motherachine, self.window = run_simulation2(
+            cfg_cell=self.cfg_cell,
+            cfg_sim=self.cfg_sim,
+            cfg_mm=self.cfg_mm,
+        )
 
     def draw_simulation_OPL(self, do_transformation = True, label_masks = True, return_output = False, streamlit_mode=False):
         self.main_segments = get_trench_segments(self.space) # TODO: this does not seem to be used here. Not allocated in constructor.
-        if self.old_version:
-            ID_props = generate_curve_props(self.cell_timeseries)
-            self.cell_timeseries_properties = Parallel(n_jobs=-1)(
-                delayed(gen_cell_props_for_draw)(a, ID_props) for a in tqdm(self.cell_timeseries, desc='Timeseries Properties'))
-            space_size = get_space_size(self.cell_timeseries_properties)
-            scenes = Parallel(n_jobs=-1)(delayed(draw_scene)(
-                cell_properties, do_transformation, space_size, self.cfg_sim.offset, label_masks) for cell_properties in tqdm(
-                self.cell_timeseries_properties, desc='Scene Draw:'))
-        else:
-            self.cell_timeseries_properties = [
-                [cell.get_properties_list(time_index=i) for cell in self.cells if cell.has_properties(time_index=i)]
-                for i in range(self.cfg_sim.sim_length)
-            ]
-            space_size = self.motherachine.get_space_size()
+        self.cell_timeseries_properties = [
+            [cell.get_properties_list(time_index=i) for cell in self.cells if cell.has_properties(time_index=i)]
+            for i in range(self.cfg_sim.sim_length)
+        ]
+        space_size = self.motherachine.get_space_size()
 
-            scenes = [
-                draw_scene(
-                    cell_properties=cell_properties,
-                    do_transformation=do_transformation,
-                    space_size=(int(space_size[0]), int(space_size[1])), # needs to be int as it allocates a numpy array
-                    offset=self.cfg_sim.offset,
-                    label_masks=label_masks,
-                ) for cell_properties in self.cell_timeseries_properties
-            ]
+        scenes = [
+            draw_scene(
+                cell_properties=cell_properties,
+                do_transformation=do_transformation,
+                space_size=(int(space_size[0]), int(space_size[1])), # needs to be int as it allocates a numpy array
+                offset=self.cfg_sim.offset,
+                label_masks=label_masks,
+            ) for cell_properties in self.cell_timeseries_properties
+        ]
 
         self.OPL_scenes = [_[0] for _ in scenes]
         self.masks = [_[1] for _ in scenes]

@@ -256,8 +256,8 @@ def draw_scene(cell_properties, do_transformation, space_size, offset, label_mas
     for properties in cell_properties:
         length, width, angle, position, freq_modif, amp_modif, phase_modif, phase_mult, separation = properties
         position = np.array(position)
-        x = np.array(position).astype(int)[0] + int(offset)
-        y = np.array(position).astype(int)[1] + int(offset)
+        x = np.array(position).astype(int)[0] + offset
+        y = np.array(position).astype(int)[1] + offset
         OPL_cell = raster_cell(length=length, width=width, separation=separation, pinching=pinching)
 
         if do_transformation:
@@ -278,7 +278,7 @@ def draw_scene(cell_properties, do_transformation, space_size, offset, label_mas
         cell_y, cell_x = (np.array(rotated_OPL_cell.shape) / 2).astype(int)
         offset_y = rotated_OPL_cell.shape[0] - space[y - cell_y:y + cell_y, x - cell_x:x + cell_x].shape[0]
         offset_x = rotated_OPL_cell.shape[1] - space[y - cell_y:y + cell_y, x - cell_x:x + cell_x].shape[1]
-        if y > cell_y:
+        if y <= cell_y:
             print("Cell has {} negative pixels in y coordinate, try increasing your offset".format(y - cell_y))
         assert y > cell_y, "Cell has {} negative pixels in y coordinate, try increasing your offset".format(y - cell_y)
         assert x > cell_x, "Cell has negative pixels in x coordinate, try increasing your offset"

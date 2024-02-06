@@ -7,6 +7,7 @@ from SyMBac.drawing import make_images_same_shape, perc_diff
 import warnings
 import napari
 import os
+import pickle
 import skimage
 import copy
 
@@ -176,7 +177,7 @@ class Renderer:
         mean_error, media_error, cell_error, device_error, mean_var_error, media_var_error, cell_var_error,
         device_var_error)
 
-    def select_intensity_napari(self, auto = True, classes = 3, cells = "dark"):
+    def select_intensity_napari(self, auto = True, classes = 3, cells = "dark", fname_param=""):
         if auto:
             thresholds = threshold_multiotsu(self.real_resize, classes = classes)
             regions = np.digitize(self.real_resize, bins=thresholds)
@@ -192,12 +193,264 @@ class Renderer:
             thresh_media = np.zeros(self.real_resize.shape).astype(int)
             thresh_cells = np.zeros(self.real_resize.shape).astype(int)
             thresh_device = np.zeros(self.real_resize.shape).astype(int)
-        viewer = napari.view_image(self.real_resize)
-        self.media_label = viewer.add_labels(thresh_media, name="Media")
-        self.cell_label = viewer.add_labels(thresh_cells, name="Cell")
-        self.device_label = viewer.add_labels(thresh_device, name="Device")
+        if (not fname_param) or (not os.path.isfile(fname_param)):
+            viewer = napari.view_image(self.real_resize)
+            self.media_label = viewer.add_labels(thresh_media, name="Media")
+            self.cell_label = viewer.add_labels(thresh_cells, name="Cell")
+            self.device_label = viewer.add_labels(thresh_device, name="Device")
+            viewer.show(block=True)
+            self.real_media_mean = self.real_resize[np.where(self.media_label.data)].mean()
+            self.real_cell_mean = self.real_resize[np.where(self.cell_label.data)].mean()
+            self.real_device_mean = self.real_resize[np.where(self.device_label.data)].mean()
+            self.real_media_var = self.real_resize[np.where(self.media_label.data)].var()
+            self.real_cell_var = self.real_resize[np.where(self.cell_label.data)].var()
+            self.real_device_var = self.real_resize[np.where(self.device_label.data)].var()
+
+            if fname_param:
+                save_param = (self.real_media_mean, self.real_cell_mean, self.real_device_mean,
+                              self.real_media_var, self.real_cell_var, self.real_device_var)
+                with open(fname_param, "wb") as f:
+                    pickle.dump(save_param, f, pickle.HIGHEST_PROTOCOL)
+        else:
+            print("Loading mask from {}".format(fname_param))  # TODO: use logger
+            saved_param = pickle.load(open(fname_param, "rb"))
+            self.real_media_mean, self.real_cell_mean, self.real_device_mean = saved_param[:3]
+            self.real_media_var, self.real_cell_var, self.real_device_var = saved_param[3:]
+            self.media_label, self.cell_label, self.device_label = (None, None, None)
 
 
+    def generate_test_comparison_OLD(self, media_multiplier=75, cell_multiplier=1.7, device_multiplier=29, sigma=8.85,
+                                 scene_no=-1, match_fourier=False, match_histogram=True, match_noise=False,
+                                 debug_plot=False, noise_var=0.001, defocus=3.0):
+        """
+        Takes all the parameters we've defined and calculated, and uses them to finally generate a synthetic image.
+
+        Parameters
+        ----------
+        media_multiplier : float
+            Intensity multiplier for media (the area between cells which isn't the device)
+        cell_multiplier : float
+            Intensity multiplier for cell
+        device_multiplier : float
+            Intensity multiplier for device
+        sigma : float
+            Radius of a gaussian which simulates PSF apodisation
+        scene_no : int in range(len(cell_timeseries_properties))
+            The index of which scene to render
+        scale : float
+            The micron/pixel value of the image
+        match_fourier : bool
+            If true, use sfmatch to match the rotational fourier spectrum of the synthetic image to a real image sample
+        match_histogram : bool
+            If true, match the intensity histogram of a synthetic image to a real image
+        offset : int
+            The same offset value from draw_scene
+        debug_plot : bool
+            True if you want to see a quick preview of the rendered synthetic image
+        noise_var : float
+            The variance for the simulated camera noise (gaussian)
+        kernel : SyMBac.PSF.PSF_generator
+            A kernel object from SyMBac.PSF.PSF_generator
+        resize_amount : int
+            The upscaling factor to render the image by. E.g a resize_amount of 3 will interally render the image at 3x
+            resolution before convolving and then downsampling the image. Values >2 are recommended.
+        real_image : 2D numpy array
+            A sample real image from the experiment you are trying to replicate
+        image_params : tuple
+            A tuple of parameters which describe the intensities and variances of the real image, in this order:
+            (real_media_mean, real_cell_mean, real_device_mean, real_means, real_media_var, real_cell_var, real_device_var, real_vars).
+        error_params : tuple
+            A tuple of parameters which characterises the error between the intensities in the real image and the synthetic
+            image, in this order: (mean_error,media_error,cell_error,device_error,mean_var_error,media_var_error,
+            cell_var_error,device_var_error). I have given an example of their calculation in the example notebooks.
+        fluorescence : bool
+            If true converts image to a fluorescence (hides the trench and swaps to the fluorescence PSF).
+        defocus : float
+            Simulated optical defocus by convolving the kernel with a 2D gaussian of radius defocus.
+
+        Returns
+        -------
+        noisy_img : 2D numpy array
+            The final simulated microscope image
+        expanded_mask_resized_reshaped : 2D numpy array
+            The final image's accompanying masks
+        """
+
+        expanded_scene, expanded_scene_no_cells, expanded_mask = self.generate_PC_OPL(
+            scene=self.simulation.OPL_scenes[scene_no],
+            mask=self.simulation.masks[scene_no],
+            media_multiplier=media_multiplier,
+            cell_multiplier=cell_multiplier,
+            device_multiplier=device_multiplier,
+            x_border_expansion_coefficient=self.x_border_expansion_coefficient,
+            y_border_expansion_coefficient=self.y_border_expansion_coefficient,
+            defocus=defocus
+        )
+
+        if self.PSF.mode == "phase contrast":
+            R, W, radius, scale, NA, n, _, λ = self.PSF.R, self.PSF.W, self.PSF.radius, self.PSF.scale, self.PSF.NA, self.PSF.n, self.PSF.apo_sigma, self.PSF.wavelength
+        else:
+            radius, scale, NA, n, _, λ = self.PSF.radius, self.PSF.scale, self.PSF.NA, self.PSF.n, self.PSF.apo_sigma, self.PSF.wavelength
+
+        real_media_mean, real_cell_mean, real_device_mean, real_means, real_media_var, real_cell_var, real_device_var, real_vars = self.image_params
+        mean_error, media_error, cell_error, device_error, mean_var_error, media_var_error, cell_var_error, device_var_error = self.error_params
+
+        if self.PSF.mode == "phase contrast":
+            self.PSF = PSF_generator(radius=self.PSF.radius, wavelength=self.PSF.wavelength, NA=self.PSF.NA,
+                                     n=self.PSF.n, resize_amount=self.simulation.resize_amount,
+                                     pix_mic_conv=self.simulation.pix_mic_conv, apo_sigma=sigma, mode="phase contrast",
+                                     condenser=self.PSF.condenser)
+            self.PSF.calculate_PSF()
+        if self.PSF.mode == "3d fluo":  # Full 3D PSF model
+            def generate_deviation_from_CL(centreline, thickness):
+                return np.arange(thickness) + centreline - int(np.ceil(thickness / 2))
+
+            def gen_3D_coords_from_2D(centreline, thickness):
+                return np.where(test_cells == thickness) + (generate_deviation_from_CL(centreline, thickness),)
+
+            volume_shape = expanded_scene.shape[0:] + (int(expanded_scene.max()),)
+            test_cells = np.round(expanded_scene)
+            centreline = int(expanded_scene.max() / 2)
+            cells_3D = np.zeros(volume_shape)
+            for t in range(int(expanded_scene.max() * 2)):
+                test_coords = gen_3D_coords_from_2D(centreline, t)
+                for x, y in zip(test_coords[0], (test_coords[1])):
+                    for z in test_coords[2]:
+                        cells_3D[x, y, z] = 1
+            cells_3D = np.moveaxis(cells_3D, -1, 0)
+            psf = psfm.make_psf(volume_shape[2], radius * 2, dxy=scale, dz=scale, pz=0, ni=n, wvl=λ, NA=NA)
+            convolved = np.zeros(cells_3D.shape)
+            for x in range(len(cells_3D)):
+                temp_conv = cuconvolve(cp.array(cells_3D[x]), cp.array(psf[x])).get()
+                convolved[x] = temp_conv
+            convolved = convolved.sum(axis=0)
+            convolved = rescale(convolved, 1 / self.simulation.resize_amount, anti_aliasing=False)
+            convolved = rescale_intensity(convolved.astype(np.float32), out_range=(0, 1))
+        else:
+            kernel = self.PSF.kernel
+            if defocus > 0:
+                kernel = gaussian_filter(kernel, defocus, mode="reflect")
+            convolved = convolve_rescale(expanded_scene, kernel, 1 / self.simulation.resize_amount, rescale_int=True)
+
+        real_resize, expanded_resized = make_images_same_shape(self.real_image, convolved, rescale_int=True)
+        fftim1 = fft.fftshift(fft.fft2(real_resize))
+        angs, mags = cart2pol(np.real(fftim1), np.imag(fftim1))
+
+        if match_fourier and not match_histogram:
+            matched = sfMatch([real_resize, expanded_resized], tarmag=mags)[1]
+            matched = lumMatch([real_resize, matched], None, [np.mean(real_resize), np.std(real_resize)])[1]
+        else:
+            matched = expanded_resized
+
+        if match_histogram and match_fourier:
+            matched = sfMatch([real_resize, matched], tarmag=mags)[1]
+            matched = lumMatch([real_resize, matched], None, [np.mean(real_resize), np.std(real_resize)])[1]
+            matched = match_histograms(matched, real_resize, multichannel=False)
+        else:
+            pass
+        if match_histogram:
+            matched = match_histograms(matched, real_resize, multichannel=False)
+        else:
+            pass
+
+        if self.camera:  # Camera noise simulation
+            baseline, sensitivity, dark_noise = self.camera.baseline, self.camera.sensitivity, self.camera.dark_noise
+            rng = np.random.default_rng(2)
+            matched = matched / (matched.max() / self.real_image.max()) / sensitivity
+            if match_fourier:
+                matched += abs(matched.min())  # Preserve mean > 0 for rng.poisson(matched)
+            matched = rng.poisson(matched)
+            noisy_img = matched + rng.normal(loc=baseline, scale=dark_noise, size=matched.shape)
+        else:  # Ad hoc noise mathcing
+            noisy_img = random_noise(rescale_intensity(matched), mode="poisson")
+            noisy_img = random_noise(rescale_intensity(noisy_img), mode="gaussian", mean=0, var=noise_var, clip=False)
+
+        if match_noise:
+            noisy_img = match_histograms(noisy_img, real_resize, multichannel=False)
+        else:
+            pass
+        noisy_img = rescale_intensity(noisy_img.astype(np.float32), out_range=(0, 1))
+
+        ## getting the cell mask to the right shape
+        expanded_mask_resized = rescale(expanded_mask, 1 / self.simulation.resize_amount, anti_aliasing=False,
+                                        preserve_range=True,
+                                        order=0)
+        if len(np.unique(expanded_mask_resized)) > 2:
+            _, expanded_mask_resized_reshaped = make_images_same_shape(self.real_image, expanded_mask_resized,
+                                                                       rescale_int=False)
+        else:
+            _, expanded_mask_resized_reshaped = make_images_same_shape(self.real_image, expanded_mask_resized,
+                                                                       rescale_int=True)
+
+        expanded_media_mask = rescale(
+            (expanded_scene_no_cells == device_multiplier) ^ (expanded_scene - expanded_scene_no_cells).astype(bool),
+            1 / self.simulation.resize_amount, anti_aliasing=False)
+        real_resize, expanded_media_mask = make_images_same_shape(self.real_image, expanded_media_mask,
+                                                                  rescale_int=True)
+        just_media = expanded_media_mask * noisy_img
+
+        expanded_cell_pseudo_mask = (expanded_scene - expanded_scene_no_cells).astype(bool)
+        expanded_cell_pseudo_mask = rescale(expanded_cell_pseudo_mask, 1 / self.simulation.resize_amount,
+                                            anti_aliasing=False)
+
+        real_resize, expanded_cell_pseudo_mask = make_images_same_shape(self.real_image, expanded_cell_pseudo_mask,
+                                                                        rescale_int=True)
+        just_cells = expanded_cell_pseudo_mask * noisy_img
+
+        expanded_device_mask = expanded_scene_no_cells
+
+        expanded_device_mask = rescale(expanded_device_mask, 1 / self.simulation.resize_amount, anti_aliasing=False)
+        real_resize, expanded_device_mask = make_images_same_shape(self.real_image, expanded_device_mask,
+                                                                   rescale_int=True)
+        just_device = expanded_device_mask * noisy_img
+
+        simulated_means = np.array([just_media[np.where(just_media)].mean(), just_cells[np.where(just_cells)].mean(),
+                                    just_device[np.where(just_device)].mean()])
+        simulated_vars = np.array([just_media[np.where(just_media)].var(), just_cells[np.where(just_cells)].var(),
+                                   just_device[np.where(just_device)].var()])
+        mean_error.append(perc_diff(np.mean(noisy_img), np.mean(real_resize)))
+        mean_var_error.append(perc_diff(np.var(noisy_img), np.var(real_resize)))
+        if "fluo" in self.PSF.mode.lower():
+            pass
+        else:
+            media_error.append(perc_diff(simulated_means[0], real_media_mean))
+            cell_error.append(perc_diff(simulated_means[1], real_cell_mean))
+            device_error.append(perc_diff(simulated_means[2], real_device_mean))
+
+            media_var_error.append(perc_diff(simulated_vars[0], real_media_var))
+            cell_var_error.append(perc_diff(simulated_vars[1], real_cell_var))
+            device_var_error.append(perc_diff(simulated_vars[2], real_device_var))
+        if debug_plot:
+            fig = plt.figure(figsize=(15, 5))
+            ax1 = plt.subplot2grid((1, 8), (0, 0), colspan=1, rowspan=1)
+            ax2 = plt.subplot2grid((1, 8), (0, 1), colspan=1, rowspan=1)
+            ax3 = plt.subplot2grid((1, 8), (0, 2), colspan=3, rowspan=1)
+            ax4 = plt.subplot2grid((1, 8), (0, 5), colspan=3, rowspan=1)
+            ax1.imshow(noisy_img, cmap="Greys_r")
+            ax1.set_title("Synthetic")
+            ax1.axis("off")
+            ax2.imshow(real_resize, cmap="Greys_r")
+            ax2.set_title("Real")
+            ax2.axis("off")
+            ax3.plot(mean_error)
+            ax3.plot(media_error)
+            ax3.plot(cell_error)
+            ax3.plot(device_error)
+            ax3.legend(["Mean error", "Media error", "Cell error", "Device error"])
+            ax3.set_title("Intensity Error")
+            ax3.hlines(0, ax3.get_xlim()[0], ax3.get_xlim()[1], color="k", linestyles="dotted")
+            ax4.plot(mean_var_error)
+            ax4.plot(media_var_error)
+            ax4.plot(cell_var_error)
+            ax4.plot(device_var_error)
+            ax4.legend(["Mean error", "Media error", "Cell error", "Device error"])
+            ax4.set_title("Variance Error")
+            ax4.hlines(0, ax4.get_xlim()[0], ax4.get_xlim()[1], color="k", linestyles="dotted")
+            fig.tight_layout()
+            plt.show()
+            plt.close()
+        else:
+            return noisy_img, expanded_mask_resized_reshaped.astype(int)
 
     def generate_test_comparison(self, media_multiplier=75, cell_multiplier=1.7, device_multiplier=29, sigma=8.85,
                                  scene_no=-1, match_fourier=False, match_histogram=True, match_noise=False,
@@ -277,13 +530,12 @@ class Renderer:
         def halo_line_profile(length, halo_top_intensity, halo_bottom_intensity, halo_start, halo_end):
             halo_start = int(halo_start * length)
             halo_end = int(halo_end * length)
+            length = int(length)
             part_1 = np.linspace(halo_bottom_intensity,halo_bottom_intensity,   halo_start)
             part_2 = np.linspace(halo_bottom_intensity, halo_top_intensity, halo_end - halo_start)
             part_3 = np.linspace(halo_top_intensity, halo_top_intensity, length - halo_end)
             a = np.concatenate([part_1, part_2, part_3])[:, None]
             return a
-
-
         
         #halo_array = np.linspace(halo_lower_int,halo_upper_int, expanded_scene.shape[0])[:, None]
         halo_array = halo_line_profile(self.real_image.shape[0]*self.simulation.resize_amount, halo_top_intensity, halo_bottom_intensity, halo_start, halo_end)
@@ -546,15 +798,119 @@ class Renderer:
                 pass
             else:
                 test_scene = np.where(no_cells != media_multiplier, test_scene, media_multiplier)
-            test_scene = test_scene[segment_2_top_left[0]:segment_1_bottom_right[0],
-                         segment_2_top_left[1]:segment_1_bottom_right[1]]
+            # test_scene = test_scene[segment_2_top_left[0]:segment_1_bottom_right[0],
+            #              segment_2_top_left[1]:segment_1_bottom_right[1]]
 
             mask = np.where(no_cells != media_multiplier, mask, 0)
-            mask_resized = mask[segment_2_top_left[0]:segment_1_bottom_right[0],
-                           segment_2_top_left[1]:segment_1_bottom_right[1]]
+            # mask_resized = mask[segment_2_top_left[0]:segment_1_bottom_right[0],
+            #                segment_2_top_left[1]:segment_1_bottom_right[1]]
+            mask_resized = mask
 
-            no_cells = no_cells[segment_2_top_left[0]:segment_1_bottom_right[0],
-                       segment_2_top_left[1]:segment_1_bottom_right[1]]
+            # no_cells = no_cells[segment_2_top_left[0]:segment_1_bottom_right[0],
+            #            segment_2_top_left[1]:segment_1_bottom_right[1]]
+            
+            expanded_scene_no_cells = np.zeros((int(no_cells.shape[0] * y_border_expansion_coefficient),
+                                                int(no_cells.shape[
+                                                        1] * x_border_expansion_coefficient))) + media_multiplier
+            expanded_scene_no_cells[expanded_scene_no_cells.shape[0] - no_cells.shape[0]:,
+            int(expanded_scene_no_cells.shape[1] / 2 - int(test_scene.shape[1] / 2)):int(
+                expanded_scene_no_cells.shape[1] / 2 - int(test_scene.shape[1] / 2)) + no_cells.shape[1]] = no_cells
+            if "fluo" in self.PSF.mode.lower():
+                expanded_scene = np.zeros((int(test_scene.shape[0] * y_border_expansion_coefficient),
+                                           int(test_scene.shape[1] * x_border_expansion_coefficient)))
+                expanded_scene[expanded_scene.shape[0] - test_scene.shape[0]:,
+                int(expanded_scene.shape[1] / 2 - int(test_scene.shape[1] / 2)):int(
+                    expanded_scene.shape[1] / 2 - int(test_scene.shape[1] / 2)) + test_scene.shape[1]] = test_scene
+            else:
+                expanded_scene = np.zeros((int(test_scene.shape[0] * y_border_expansion_coefficient),
+                                           int(test_scene.shape[
+                                                   1] * x_border_expansion_coefficient))) + media_multiplier
+                expanded_scene[expanded_scene.shape[0] - test_scene.shape[0]:,
+                int(expanded_scene.shape[1] / 2 - int(test_scene.shape[1] / 2)):int(
+                    expanded_scene.shape[1] / 2 - int(test_scene.shape[1] / 2)) + test_scene.shape[1]] = test_scene
+
+            expanded_mask = np.zeros((int(test_scene.shape[0] * y_border_expansion_coefficient),
+                                      int(test_scene.shape[1] * x_border_expansion_coefficient)))
+            expanded_mask[expanded_mask.shape[0] - test_scene.shape[0]:,
+            int(expanded_mask.shape[1] / 2 - int(test_scene.shape[1] / 2)):int(
+                expanded_mask.shape[1] / 2 - int(test_scene.shape[1] / 2)) + test_scene.shape[1]] = mask_resized
+
+            return expanded_scene, expanded_scene_no_cells, expanded_mask
+
+        expanded_scene, expanded_scene_no_cells, expanded_mask = get_OPL_image(scene, mask,
+                                                                               media_multiplier, cell_multiplier,
+                                                                               device_multiplier,
+                                                                               y_border_expansion_coefficient,
+                                                                               x_border_expansion_coefficient,
+                                                                               defocus)
+        if expanded_scene is None:
+            self.simulation.main_segments = self.simulation.main_segments.reindex(
+                index=self.simulation.main_segments.index[::-1])
+            expanded_scene, expanded_scene_no_cells, expanded_mask = get_OPL_image(scene, mask,
+                                                                                   media_multiplier, cell_multiplier,
+                                                                                   device_multiplier,
+                                                                                   y_border_expansion_coefficient,
+                                                                                   x_border_expansion_coefficient,
+                                                                                   defocus)
+        return expanded_scene, expanded_scene_no_cells, expanded_mask
+    
+    def generate_PC_OPL2(self, scene, mask, media_multiplier, cell_multiplier, device_multiplier,
+                        y_border_expansion_coefficient, x_border_expansion_coefficient, defocus):
+
+        def get_OPL_image(scene, mask, media_multiplier, cell_multiplier, device_multiplier,
+                          y_border_expansion_coefficient, x_border_expansion_coefficient, defocus):
+            segment_1_top_left = (
+            0 + self.simulation.offset, int(self.simulation.main_segments.iloc[0]["bb"][0] + self.simulation.offset))
+            segment_1_bottom_right = (
+                int(self.simulation.main_segments.iloc[0]["bb"][3] + self.simulation.offset),
+                int(self.simulation.main_segments.iloc[0]["bb"][2] + self.simulation.offset))
+
+            segment_2_top_left = (
+            0 + self.simulation.offset, int(self.simulation.main_segments.iloc[1]["bb"][0] + self.simulation.offset))
+            segment_2_bottom_right = (
+                int(self.simulation.main_segments.iloc[1]["bb"][3] + self.simulation.offset),
+                int(self.simulation.main_segments.iloc[1]["bb"][2] + self.simulation.offset))
+
+            if "fluo" in self.PSF.mode.lower():
+                test_scene = np.zeros(scene.shape)
+                media_multiplier = -1 * device_multiplier
+            else:
+                # TODO
+                test_scene = np.zeros(scene.shape) + device_multiplier
+                rr, cc = draw.rectangle(start=segment_1_top_left, end=segment_1_bottom_right, shape=test_scene.shape)
+                test_scene[rr, cc] = 1 * media_multiplier
+                rr, cc = draw.rectangle(start=segment_2_top_left, end=segment_2_bottom_right, shape=test_scene.shape)
+                test_scene[rr, cc] = 1 * media_multiplier
+                circ_midpoint_y = (segment_1_top_left[1] + segment_2_bottom_right[1]) / 2
+                radius = (segment_1_top_left[1] - self.simulation.offset - (
+                            segment_2_bottom_right[1] - self.simulation.offset)) / 2
+                circ_midpoint_x = (self.simulation.offset) + radius
+
+                rr, cc = draw.rectangle(start=segment_2_top_left, end=(circ_midpoint_x, segment_1_top_left[1]),
+                                        shape=test_scene.shape)
+                test_scene[rr.astype(int), cc.astype(int)] = 1 * media_multiplier
+                rr, cc = draw.disk(center=(circ_midpoint_x, circ_midpoint_y), radius=radius, shape=test_scene.shape)
+                rr_semi = rr[rr < (circ_midpoint_x + 1)]
+                cc_semi = cc[rr < (circ_midpoint_x + 1)]
+                test_scene[rr_semi, cc_semi] = device_multiplier
+            no_cells = copy.deepcopy(test_scene)
+
+            test_scene += scene * cell_multiplier
+            if "fluo" in self.PSF.mode.lower():
+                pass
+            else:
+                test_scene = np.where(no_cells != media_multiplier, test_scene, media_multiplier)
+            # test_scene = test_scene[segment_2_top_left[0]:segment_1_bottom_right[0],
+            #              segment_2_top_left[1]:segment_1_bottom_right[1]]
+
+            mask = np.where(no_cells != media_multiplier, mask, 0)
+            # mask_resized = mask[segment_2_top_left[0]:segment_1_bottom_right[0],
+            #                segment_2_top_left[1]:segment_1_bottom_right[1]]
+            mask_resized = mask
+
+            # no_cells = no_cells[segment_2_top_left[0]:segment_1_bottom_right[0],
+            #            segment_2_top_left[1]:segment_1_bottom_right[1]]
+            
             expanded_scene_no_cells = np.zeros((int(no_cells.shape[0] * y_border_expansion_coefficient),
                                                 int(no_cells.shape[
                                                         1] * x_border_expansion_coefficient))) + media_multiplier
@@ -607,15 +963,7 @@ class Renderer:
         :param bool manual_update: Whether to turn on manual updating. This is recommended if you have no/a slow GPU. Will display a button to allow manual updating of the image optimiser
         :return: ipywidget object for optimisation of synthetic data
         """
-
-        self.real_media_mean = self.real_resize[np.where(self.media_label.data)].mean()
-        self.real_cell_mean = self.real_resize[np.where(self.cell_label.data)].mean()
-        self.real_device_mean = self.real_resize[np.where(self.device_label.data)].mean()
         self.real_means = np.array((self.real_media_mean, self.real_cell_mean, self.real_device_mean))
-
-        self.real_media_var = self.real_resize[np.where(self.media_label.data)].var()
-        self.real_cell_var = self.real_resize[np.where(self.cell_label.data)].var()
-        self.real_device_var = self.real_resize[np.where(self.device_label.data)].var()
         self.real_vars = np.array((self.real_media_var, self.real_cell_var, self.real_device_var))
 
         self.image_params = (
