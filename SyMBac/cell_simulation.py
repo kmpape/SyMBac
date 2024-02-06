@@ -6,9 +6,10 @@ import numpy as np
 import pyglet
 import pymunk
 from pymunk.pyglet_util import DrawOptions
+from scipy.stats import norm
 from tqdm.auto import tqdm
 
-from SyMBac.cell import Cell, CellIDFactory, create_width_callable
+from SyMBac.cell import Cell, CellOld, CellIDFactory, create_width_callable
 from SyMBac.config import ConfigCell, ConfigMothermachine, ConfigSimulation
 from SyMBac.trench_geometry import trench_creator, get_trench_segments
 from SyMBac.mothermachine_geometry import Mothermachine, MothermachinePart
@@ -74,7 +75,7 @@ def run_simulation(trench_length, trench_width, cell_max_length, cell_width, sim
     trench_width = trench_width * scale_factor
     trench_creator(trench_width, trench_length, (35, 0), space)  # Coordinates of bottom left corner of the trench
 
-    cell1 = Cell(
+    cell1 = CellOld(
         length=cell_max_length * scale_factor,
         width=cell_width * scale_factor,
         resolution=60,
@@ -320,4 +321,65 @@ def step_and_update3(
         pyglet.app.exit()
         return (cells)
     sim_progress[0] += 1
+    return (cells)
+
+
+def step_and_update(dt, cells, space, phys_iters, ylim, cell_timeseries,x,sim_length,save_dir):
+    """
+    Evolves the simulation forward
+
+    :param float dt: The simulation timestep
+    :param list(SyMBac.cell.Cell)  cells: A list of all cells in the current timestep
+    :param pymunk.Space space: The simulations's pymunk space.
+    :param int phys_iters: The number of physics iteration in each timestep
+    :param int ylim: The y coordinate threshold beyond which to delete cells
+    :param list cell_timeseries: A list to store the cell's properties each time the simulation steps forward
+    :param int list: A list with a single value to store the simulation's progress.
+    :param int sim_length: The number of timesteps to run.
+    :param str save_dir: The directory to save the simulation information.
+
+    Returns
+    -------
+    cells : list(SyMBac.cell.Cell)
+
+    """
+    for shape in space.shapes:
+        if shape.body.position.y < 0 or shape.body.position.y > ylim:
+            space.remove(shape.body, shape)
+            space.step(dt)
+
+    for cell in cells:
+        if cell.shape.body.position.y < 0 or cell.shape.body.position.y > ylim:
+            cells.remove(cell)
+            space.step(dt)
+        elif norm.rvs() <= norm.ppf(cell.lysis_p) and len(cells) > 1:   # in case all cells disappear
+            cells.remove(cell)
+            space.step(dt)
+        else:
+            pass
+
+    wipe_space(space)
+
+    update_pm_cells(cells, space)
+
+    for _ in range(phys_iters):
+        space.step(dt)
+    update_cell_positions(cells)
+
+    #print(str(len(cells))+" cells")
+    if x[0] > 1:
+        #copy_cells = deepcopy(cells)
+
+        cell_timeseries.append(deepcopy(cells))
+        copy_cells = cell_timeseries[-1]
+        update_cell_parents(cells, copy_cells)
+        #del copy_cells
+    if x[0] == sim_length-1:
+        with open(save_dir+"/cell_timeseries.p", "wb") as f:
+            pickle.dump(cell_timeseries, f)
+        with open(save_dir+"/space_timeseries.p", "wb") as f:
+            pickle.dump(space, f)
+        pyglet.app.exit()
+        return cells
+    x[0] += 1
     return (cells)
