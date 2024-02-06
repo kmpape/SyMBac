@@ -65,6 +65,9 @@ class CellCurvatureProperties:
     phase_modif: float = field(default_factory=lambda: random.uniform(-1, 1))
     phase_mult: float = 20
 
+    def tolist(self) -> List[float]:
+        return [self.freq_modif, self.amp_modif, self.phase_modif, self.phase_mult]
+
 
 @dataclass
 class CellProperties:
@@ -73,6 +76,12 @@ class CellProperties:
     angle: float
     centroid: Tuple[float, float]
     pinching_sep: float
+
+    def tolist(self, curve_props: CellCurvatureProperties):
+        """This function returns properties in original SyMBac order."""
+        return [self.length, self.width, self.angle, self.centroid,
+                curve_props.freq_modif, curve_props.amp_modif, curve_props.phase_modif, curve_props.phase_mult,
+                self.pinching_sep]
 
 
 class Cell:
@@ -170,11 +179,21 @@ class Cell:
     def get_centroid(self) -> Tuple[float, float]:
         return tuple(self.get_position() + self.geometry.get_centroid(angle=self.get_angle()))  # TODO this sums np.array and Tuple[float, float]
     
+    def get_curvature_properties(self, as_list: bool=False) -> Union[CellCurvatureProperties, List[float]]:
+        return self._curvature_properties.tolist() if as_list else self._curvature_properties
+
     def get_length(self) -> float:
         return self.geometry.get_length()
     
+    def get_pinching_sep(self) -> float:
+        return self.pinching_sep
+    
     def get_position(self) -> Tuple[float, float]:
         return self.body.position
+    
+    def get_properties_list(self, time_index: int) -> List[Union[float, Tuple[float, float]]]:
+        assert time_index in self._timeseries_properties
+        return self._timeseries_properties[time_index].tolist(curve_props=self._curvature_properties)
     
     def get_vertex_list(self, global_coordinates: bool=True) -> List[Tuple[float, float]]:
         if global_coordinates:
@@ -195,6 +214,9 @@ class Cell:
             self._update_pinching_sep(pinching_sep=new_pinching_sep)
         else:
             self.shape.color = (0, 255, 0, 255)
+
+    def has_properties(self, time_index: int) -> bool:
+        return time_index in self._timeseries_properties
 
     def is_alive(self) -> bool:
         return self._is_alive

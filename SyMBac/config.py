@@ -35,9 +35,9 @@ class ConfigCell:
     
 
 TEST_CONFIG_CELL = ConfigCell(
-    max_length=30.0,
-    max_width=7.5,
-    init_width=7,
+    max_length=4.0,
+    max_width=0.99,
+    init_width=1,
     growth_rate_constant=0.01,
 )
 
@@ -56,10 +56,10 @@ class ConfigMothermachine:
     "Number of trenches on one side of the media channel."
 
 TEST_CONFIG_MOTHERMACHINE = ConfigMothermachine(
-    trench_length=92.0,
-    trench_width=32.0,
-    trench_spacing=92.0,
-    channel_width=184.0,
+    trench_length=12.0,
+    trench_width=1.1,
+    trench_spacing=4.4,
+    channel_width=24.0,
     num_trenches=2,
 )
 
@@ -79,6 +79,8 @@ class ConfigSimulation:
     "TODO How does this differ from pix_mic_conv?"
     offset: float
     "TODO Why is this neccesary? Why only one offset for one direction?"
+    streamlit_mode: bool = False
+    "TODO is this needed? What are the advantages of this streamlit?"
 
 TEST_CONFIG_SIMULATION = ConfigSimulation(
     pix_mic_conv=0.065,
@@ -87,5 +89,5 @@ TEST_CONFIG_SIMULATION = ConfigSimulation(
     num_physics_iter=10,
     save_dir="/home/tmp/",
     resize_amount=1,
-    offset=30.0,
+    offset=50.0,
 )

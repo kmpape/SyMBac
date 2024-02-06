@@ -1,14 +1,18 @@
+from typing import List, Optional, Tuple, Union
 import random
 
-import numpy as np
 from joblib import Parallel, delayed
+import napari
+import numpy as np
+import pymunk
+from tqdm.autonotebook import tqdm
 
+from SyMBac.cell import Cell, CellCurvatureProperties, CellProperties
 from SyMBac.cell_simulation import run_simulation, run_simulation2
 from SyMBac.config import ConfigCell, ConfigMothermachine, ConfigSimulation
 from SyMBac.drawing import draw_scene, get_space_size, gen_cell_props_for_draw, generate_curve_props
+from SyMBac.mothermachine_geometry import  Mothermachine
 from SyMBac.trench_geometry import  get_trench_segments
-from tqdm.autonotebook import tqdm
-import napari
 
 class Simulation:
     """
@@ -175,40 +179,63 @@ class Simulation2:
             config_cell: ConfigCell,
             config_mothermachine: ConfigMothermachine,
         ):
-        self.config_simulation: ConfigSimulation = config_simulation
-        self.config_cell: ConfigCell = config_cell
-        self.config_mothermachine: ConfigMothermachine = config_mothermachine
+        self.cfg_sim: ConfigSimulation = config_simulation
+        "Configuration object for simulation parameters."
+        self.cfg_cell: ConfigCell = config_cell
+        "Configuration object for cell geometry parameters."
+        self.cfg_mm: ConfigMothermachine = config_mothermachine
+        "Configuration object for mothermachine geometry parameters."
 
-    def run_simulation(self, show_window = True, streamlit_mode=False):
-        self.cell_timeseries, self.space = run_simulation2(
-            trench_length=self.trench_length,
-            trench_width=self.trench_width,
-            cell_max_length=self.cell_max_length,  # 6, long cells # 1.65 short cells
-            cell_width=self.cell_width,  # 1 long cells # 0.95 short cells
-            sim_length=self.sim_length,
-            pix_mic_conv=self.pix_mic_conv,
-            gravity=self.gravity,
-            phys_iters=self.phys_iters,
-            max_length_var=self.max_length_var,
-            width_var=self.width_var,
-            lysis_p=self.lysis_p,  # this should somehow depends on the time
-            save_dir=self.save_dir,
-            show_window = show_window,
-            streamlit_mode = streamlit_mode
-        )  # growth phase
+        self.mothermachine: Optional[Mothermachine] = None
+        self.space: Optional[pymunk.Space] = None
+        self.cells: List[Cell] = []
+        self.cell_timeseries_properties: List[List[Union[float, Tuple[float, float]]]] = []
+
+        self.old_version = True
+
+    def run_simulation(self):
+        if self.old_version == False:
+            self.cells, self.space, self.motherachine = run_simulation2(
+                cfg_cell=self.cfg_cell,
+                cfg_sim=self.cfg_sim,
+                cfg_mm=self.cfg_mm,
+                old_version=self.old_version,
+            )
+        else:
+            self.cell_timeseries, self.space, self.motherachine = run_simulation2(
+                cfg_cell=self.cfg_cell,
+                cfg_sim=self.cfg_sim,
+                cfg_mm=self.cfg_mm,
+                old_version=self.old_version,
+            )
 
     def draw_simulation_OPL(self, do_transformation = True, label_masks = True, return_output = False, streamlit_mode=False):
-        self.main_segments = get_trench_segments(self.space)
-        ID_props = generate_curve_props(self.cell_timeseries)
+        self.main_segments = get_trench_segments(self.space) # TODO: this does not seem to be used here. Not allocated in constructor.
+        if self.old_version:
+            ID_props = generate_curve_props(self.cell_timeseries)
+            self.cell_timeseries_properties = Parallel(n_jobs=-1)(
+                delayed(gen_cell_props_for_draw)(a, ID_props) for a in tqdm(self.cell_timeseries, desc='Timeseries Properties'))
+            space_size = get_space_size(self.cell_timeseries_properties)
+            scenes = Parallel(n_jobs=-1)(delayed(draw_scene)(
+                cell_properties, do_transformation, space_size, self.cfg_sim.offset, label_masks) for cell_properties in tqdm(
+                self.cell_timeseries_properties, desc='Scene Draw:'))
+        else:
+            self.cell_timeseries_properties = [
+                [cell.get_properties_list(time_index=i) for cell in self.cells if cell.has_properties(time_index=i)]
+                for i in range(self.cfg_sim.sim_length)
+            ]
+            space_size = self.motherachine.get_space_size()
 
-        self.cell_timeseries_properties = Parallel(n_jobs=-1)(
-            delayed(gen_cell_props_for_draw)(a, ID_props) for a in tqdm(self.cell_timeseries, desc='Timeseries Properties'))
+            scenes = [
+                draw_scene(
+                    cell_properties=cell_properties,
+                    do_transformation=do_transformation,
+                    space_size=(int(space_size[0]), int(space_size[1])), # needs to be int as it allocates a numpy array
+                    offset=self.cfg_sim.offset,
+                    label_masks=label_masks,
+                ) for cell_properties in self.cell_timeseries_properties
+            ]
 
-        space_size = get_space_size(self.cell_timeseries_properties)
-
-        scenes = Parallel(n_jobs=-1)(delayed(draw_scene)(
-        cell_properties, do_transformation, space_size, self.offset, label_masks) for cell_properties in tqdm(
-            self.cell_timeseries_properties, desc='Scene Draw:'))
         self.OPL_scenes = [_[0] for _ in scenes]
         self.masks = [_[1] for _ in scenes]
 

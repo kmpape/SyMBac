@@ -167,13 +167,14 @@ def run_simulation2(
         cfg_sim: ConfigSimulation,
         cfg_cell: ConfigCell,
         cfg_mm: ConfigMothermachine,
-    ) -> Tuple[List[List[Cell]], pymunk.Space]:
+        old_version: bool = False,
+    ) -> Tuple[List[List[Cell]], pymunk.Space, Mothermachine]:
 
     space = pymunk.Space(threaded=False)
     space.gravity = 0, 0.0
     space.collision_slop = 0.0
     dt = 1 / 20  # TODO why hard-coded?
-    scale_factor = 3 / cfg_sim.pix_mic_conv  # TODO why factor 3?
+    scale_factor = 1 / cfg_sim.pix_mic_conv  # TODO why factor 3?
 
     trench_length = cfg_mm.trench_length * scale_factor
     trench_width = cfg_mm.trench_width * scale_factor
@@ -225,13 +226,13 @@ def run_simulation2(
         cell.shape.color = (255, 0, 0, 255)
         space.add(cell.body, cell.shape)
 
+    bb_mothermachine = mothermachine.get_bounding_box(which=MothermachinePart.MOTHERMACHINE)
     sim_progress = [0]
     cell_timeseries = []
     if cfg_sim.show_window:
         window = pyglet.window.Window(700, 700, "SyMBac", resizable=True)
         options = DrawOptions()
         options.shape_outline_color = (10,20,30,40)
-        bb_mothermachine = mothermachine.get_bounding_box(which=MothermachinePart.MOTHERMACHINE)
         scale_x = window.width / (bb_mothermachine.right - bb_mothermachine.left)
         scale_y = window.height / (bb_mothermachine.top - bb_mothermachine.bottom)
         scale_window = min(scale_x, scale_y)
@@ -247,17 +248,35 @@ def run_simulation2(
             if symbol == pyglet.window.key.E:
                 window.close()
 
-        pyglet.clock.schedule_interval_for_duration(step_and_update3, interval=dt, duration=cfg_sim.sim_length, cells=cells, space=space, phys_iters=cfg_sim.phys_iters,
-                                    ylim=bb_mothermachine.top, cell_timeseries=cell_timeseries, sim_progress=sim_progress, sim_length=cfg_sim.sim_length,
-                                    save_dir=cfg_sim.save_dir, mothermachine=mothermachine)
+        pyglet.clock.schedule_interval_for_duration(
+            step_and_update3, 
+            interval=dt, 
+            duration=cfg_sim.sim_length, 
+            cells=cells, 
+            space=space, 
+            phys_iters=cfg_sim.num_physics_iter,
+            cell_timeseries=cell_timeseries, 
+            sim_progress=sim_progress, 
+            sim_length=cfg_sim.sim_length,
+            mothermachine=mothermachine
+        )
         pyglet.app.run()
     else:
         for _ in tqdm(range(cfg_sim.sim_length)):
-            step_and_update3(dt=dt, cells=cells, space=space, phys_iters=cfg_sim.phys_iters,
-                ylim=bb_mothermachine.top, cell_timeseries=cell_timeseries, sim_progress=sim_progress, sim_length=cfg_sim.sim_length,
-                save_dir=cfg_sim.save_dir, mothermachine=mothermachine)
-
-    return cell_timeseries, space
+            step_and_update3(
+                dt=dt, 
+                cells=cells, 
+                space=space, 
+                phys_iters=cfg_sim.num_physics_iter,
+                cell_timeseries=cell_timeseries, 
+                sim_progress=sim_progress, 
+                sim_length=cfg_sim.sim_length,
+                mothermachine=mothermachine
+            )
+    if old_version:
+        return cell_timeseries, space, mothermachine
+    else:
+        return cells, space, mothermachine
 
 
 def step_and_update3(
@@ -265,11 +284,9 @@ def step_and_update3(
         cells: List[Cell], 
         space: pymunk.Space, 
         phys_iters: int, 
-        ylim: float, 
         cell_timeseries: List[List[Cell]],
         sim_progress: List[int],
         sim_length: int,
-        save_dir: str,
         mothermachine: Mothermachine,
     ) -> Tuple[List[Cell]]:
 
@@ -298,8 +315,8 @@ def step_and_update3(
     for cell in cells:
         cell.record_timeseries_properties(timestep=sim_progress[0])
 
-    cell_timeseries.append(deepcopy(cells))
-    if sim_progress[0] == sim_length-1:
+    cell_timeseries.append(deepcopy(cells)) # TODO remove this
+    if sim_progress[0] == sim_length-1: # TODO This is suboptimal. Should not need to terminate like this.
         pyglet.app.exit()
         return (cells)
     sim_progress[0] += 1

@@ -79,6 +79,12 @@ class Mothermachine:
         angle = np.random.uniform(low=mean_angle-np.pi/6, high=mean_angle+np.pi/6)
         return (mag * np.cos(angle), mag * np.sin(angle))
     
+    def get_space_size(self, x_enlarge: float=1.5, y_enlarge: float=1.2) -> Tuple[float, float]:
+        """Careful. This function returns Y then X to match original SyMBac."""
+        bb = self.get_bounding_box(which=MothermachinePart.MOTHERMACHINE)
+        return (bb.top-bb.bottom)*y_enlarge, (bb.right-bb.left)*x_enlarge
+
+    
     def get_trench_ids(self):
         return self._trench_ids
     
@@ -156,6 +162,17 @@ class Mothermachine:
     
     def _is_valid_id(self, trench_id: int) -> bool:
         return trench_id in self._trench_ids
+    
+    def __str__(self):
+        return (f"Trench Width: {self.t_width:.2f}, "
+                f"Trench Length: {self.t_length:.2f}, "
+                f"Trench Spacing: {self.t_spacing:.2f}, "
+                f"Number of Trenches: {self.num_t}, "
+                f"Channel Width: {self.c_width:.2f}, "
+                f"Segment Thickness: {self.segment_thickness:.2f}, "
+                f"Left Margin: {self.left_margin:.2f}, "
+                f"Right Margin: {self.right_margin:.2f}, "
+                f"Flow Direction: {self.flow_direction}") 
 
     @staticmethod
     def create_and_add_top_trench(
